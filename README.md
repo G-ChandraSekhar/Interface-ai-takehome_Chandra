@@ -2,8 +2,54 @@
 
 An LLM discovers a workflow against a live legacy-style banking UI, distills the
 run into a typed capability artifact, and replays that artifact deterministically
-with no model in the decision loop. See `REPORT.md` for the design write-up
-(added at the end of the build).
+with no model in the decision loop. See `REPORT.md` for the design write-up.
+
+## Reviewer quickstart
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && python3 -m playwright install chromium
+python3 -m pytest tests/ -q                      # 100 passing
+
+cp .env.example .env                             # add OPENAI_API_KEY for discovery only
+```
+
+Terminal 1 — the target app:
+```bash
+TENANT=a PORT=4478 python3 mock_app/app.py
+```
+
+Terminal 2 — the end-to-end thread (goal → discovery → artifact → replay):
+```bash
+# 1. LLM-driven discovery against the live UI (needs OPENAI_API_KEY)
+python3 -m src.cli discover \
+  --goal "Look up member 4521 and read their name and regular savings balance." \
+  --tenant a --param member_id=4521 --output member_name --output savings_balance
+
+# 2. Distill that run into a reusable capability (use the run id it printed)
+python3 -m src.cli distill --run-dir evidence/discovery_<run_id> \
+  --artifact-id lookup_member_savings_balance --name "Look up member savings balance" \
+  --param member_id=4521 --output member_name --output savings_balance
+
+# 3. Replay deterministically -- no LLM from here on.
+#    A DIFFERENT member than discovery used: proves the artifact is a
+#    capability, not a recording.
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \
+  --param member_id=8832        # -> success: Marcus Ojo / 918.20
+
+# 4. A business outcome, not a crash
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \
+  --param member_id=9999        # -> business_outcome: MEMBER_NOT_FOUND
+
+# 5. A hard failure, with debuggable detail
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \
+  --param member_id=4521 --chaos error500    # -> failure: app_error
+```
+
+Steps 2–5 work without an API key using the committed artifact. Everything
+below is a phase-by-phase build log; `REPORT.md` has the design rationale,
+and the **Evidence index** at the end of this file maps every committed run
+to what it demonstrates.
 
 ## Status
 
@@ -552,7 +598,10 @@ re-recording:
   "target": {"tenant": "b", "base_url": "http://localhost:4479", "route_prefix": "/operations"},
   "checkpoint": {"url_pattern": "/operations/member/{member_id}"},
   "step_overrides": {
-    "s1": {"target": [{"strategy": "css_name_attr", "value": "input[name='acct_holder_no']"}]},
+    "s1": {"target": [
+      {"strategy": "label_proximity", "value": "Acct Holder No.|input", "confidence": 0.85},
+      {"strategy": "css_name_attr", "value": "input[name='acct_holder_no']", "confidence": 0.75}
+    ]},
     "s2": {"target_url": "http://localhost:4479/operations/search"},
     "s3": {"target_url": "http://localhost:4479/operations/member/1002"}
   }

@@ -44,6 +44,12 @@ _ACTIONABLE_TOOLS = {"click", "type", "select"}
 # a positional marker is a recorded admission that nothing stable existed.
 _STRATEGY_CONFIDENCE = {
     "role_name": 0.9,
+    # Above the CSS attribute deliberately: the visible label is what a
+    # human reads and tends to stay constant across tenants running the same
+    # vendor product, whereas the underlying name= attribute is an
+    # implementation detail that varies (demonstrated concretely by this
+    # project's own Tenant B overlay).
+    "label_proximity": 0.85,
     "css_name_attr": 0.75,
     "css_id": 0.7,
     "text": 0.55,

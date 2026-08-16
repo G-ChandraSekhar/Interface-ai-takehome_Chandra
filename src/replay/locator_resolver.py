@@ -91,6 +91,13 @@ def _resolve_one(page, candidate):
     if candidate.strategy == "role_name":
         role, _, name = candidate.value.partition(":")
         return page.get_by_role(role, name=name, exact=True)
+    if candidate.strategy == "label_proximity":
+        # Uses the same helper discovery used to capture it, so capture and
+        # replay can never diverge on what this strategy means.
+        from src.discovery.digest import label_proximity_locator
+
+        label, _, tag = candidate.value.partition("|")
+        return label_proximity_locator(page, label, tag or "input")
     if candidate.strategy in ("css_name_attr", "css_id"):
         return page.locator(candidate.value)
     if candidate.strategy == "text":

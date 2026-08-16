@@ -180,3 +180,58 @@ def test_visibility_checks_are_best_effort_for_doubles_without_them():
     result = resolve_locator(page, [Candidate("css_id", "#x")])
     assert isinstance(result, Resolution)
     assert result.tier == 1
+
+
+# ---- label_proximity strategy ----------------------------------------------
+
+
+def test_label_proximity_is_resolvable_by_the_resolver():
+    """The strategy must round-trip: what discovery records, replay resolves.
+    label_proximity goes through the shared label_proximity_locator helper,
+    which builds an XPath -- so the fake keys on that generated expression
+    rather than on a raw CSS string."""
+    from src.discovery.digest import label_proximity_locator
+
+    class XPathPage:
+        def __init__(self):
+            self.seen = None
+
+        def locator(self, expr):
+            self.seen = expr
+            # one match for the expression the helper actually generates
+            return FakeLocator(1)
+
+    page = XPathPage()
+    result = resolve_locator(page, [Candidate("label_proximity", "Member ID|input")])
+    assert isinstance(result, Resolution)
+    assert result.strategy == "label_proximity"
+    assert "following-sibling::td[1]" in page.seen
+
+
+def test_xpath_literal_escapes_apostrophes():
+    """XPath has no escape syntax -- a label containing an apostrophe has to
+    be built with concat() or the expression is malformed."""
+    from src.discovery.digest import _xpath_literal
+
+    assert _xpath_literal("Member ID") == "'Member ID'"
+    assert "concat(" in _xpath_literal("Member's ID")
+
+
+def test_label_proximity_xpath_targets_the_adjacent_cell():
+    """Guards the actual XPath shape against the mock app's real markup --
+    a preceding <td> holding the label, the control in the next <td>."""
+    from src.discovery.digest import _xpath_literal, label_proximity_locator
+
+    captured = {}
+
+    class RecordingPage:
+        def locator(self, expr):
+            captured["expr"] = expr
+            return FakeLocator(1)
+
+    label_proximity_locator(RecordingPage(), "Member ID", "input")
+    expr = captured["expr"]
+    assert expr.startswith("xpath=")
+    assert "following-sibling::td[1]" in expr
+    assert _xpath_literal("Member ID") in expr
+    assert expr.endswith("input")

@@ -40,7 +40,9 @@ from pydantic import BaseModel, ConfigDict, Field
 class LocatorCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    strategy: Literal["role_name", "css_name_attr", "css_id", "text", "positional"]
+    strategy: Literal[
+        "role_name", "label_proximity", "css_name_attr", "css_id", "text", "positional"
+    ]
     value: str
     # How much this strategy is trusted to still identify the same element
     # later. Not a probability -- a fixed per-strategy prior reflecting how

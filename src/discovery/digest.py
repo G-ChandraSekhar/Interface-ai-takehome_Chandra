@@ -226,6 +226,52 @@ def build_observation(page) -> Observation:
     )
 
 
+def _adjacent_cell_label(locator):
+    """The visible text in the table cell immediately preceding this
+    control's cell -- how legacy table forms label their inputs when they
+    have no <label for>, aria-label, or placeholder."""
+    try:
+        return locator.evaluate(
+            """
+            (el) => {
+                const row = el.closest('tr');
+                if (!row) return null;
+                const cells = Array.from(row.querySelectorAll('td'));
+                const idx = cells.findIndex(td => td.contains(el));
+                if (idx > 0) return cells[idx - 1].innerText.trim();
+                return null;
+            }
+            """
+        )
+    except Exception:
+        return None
+
+
+def label_proximity_locator(page, label, tag):
+    """Resolve a control by the visible label in its preceding table cell.
+
+    Shared by discovery (to verify a candidate resolves uniquely before
+    recording it) and replay (to re-resolve it later) -- capture and replay
+    must agree exactly, so this lives in one place rather than being
+    reimplemented on each side.
+    """
+    return page.locator(
+        "xpath=//td[normalize-space(text())="
+        + _xpath_literal(label)
+        + "]/following-sibling::td[1]//"
+        + tag
+    )
+
+
+def _xpath_literal(value):
+    """XPath has no escape syntax, so a string containing a single quote has
+    to be built with concat()."""
+    if "'" not in value:
+        return "'" + value + "'"
+    parts = value.split("'")
+    return "concat(" + ", \"'\", ".join("'" + p + "'" for p in parts) + ")"
+
+
 def _build_candidates(page, el, role: str, name: str) -> list[LocatorCandidate]:
     candidates: list[LocatorCandidate] = []
 
@@ -236,6 +282,34 @@ def _build_candidates(page, el, role: str, name: str) -> list[LocatorCandidate]:
                 candidates.append(LocatorCandidate("role_name", f"{role}:{name}"))
         except Exception:
             pass
+
+    # Label proximity: find the control by the visible label text sitting in
+    # the preceding table cell. This matters specifically for legacy
+    # table-based forms, where an input often has NO accessible name at all
+    # (no <label for>, no aria-label, no placeholder) -- Playwright's
+    # accessible-name algorithm correctly yields nothing, so the role_name
+    # strategy above produces no candidate and the ladder would otherwise
+    # collapse to a single CSS attribute selector.
+    #
+    # It ranks above the CSS attribute deliberately: the visible label is
+    # what a human operator reads and what tends to stay constant across
+    # tenants running the same vendor product, whereas the underlying
+    # `name=` attribute is an implementation detail that varies. That's not
+    # hypothetical here -- Tenant B renders the same "Member ID"-style field
+    # with a different name attribute, which is exactly why the tenant
+    # overlay had to patch this step.
+    if role in ("textbox", "combobox"):
+        adjacent_label = _adjacent_cell_label(el)
+        if adjacent_label:
+            try:
+                tag = el.evaluate("e => e.tagName.toLowerCase()")
+                loc = label_proximity_locator(page, adjacent_label, tag)
+                if loc is not None and loc.count() == 1:
+                    candidates.append(
+                        LocatorCandidate("label_proximity", f"{adjacent_label}|{tag}")
+                    )
+            except Exception:
+                pass
 
     name_attr = el.get_attribute("name")
     if name_attr:

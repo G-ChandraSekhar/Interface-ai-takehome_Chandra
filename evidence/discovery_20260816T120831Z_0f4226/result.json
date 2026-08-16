@@ -1,0 +1,13 @@
+{
+  "status": "success",
+  "message": "Member 4521 found: Name - Dana Whitfield, Savings Balance - 2,410.55",
+  "outputs": {
+    "member_name": "***REDACTED***",
+    "savings_balance": "***REDACTED***"
+  },
+  "step_count": 5,
+  "goal": "Look up member 4521 and read their name and regular savings balance.",
+  "params": {
+    "member_id": "4521"
+  }
+}

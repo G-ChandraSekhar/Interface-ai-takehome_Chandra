@@ -1,5 +1,5 @@
 {
-  "_comment": "Overlay adapting lookup_member_savings_balance@1 (recorded against Tenant A) to Tenant B, which runs the SAME underlying mock app configured/branded differently. Only what actually differs is patched: origin+route prefix, the checkpoint's route prefix, and the one form field whose HTML name= attribute differs (member_id -> acct_holder_no). The 'Search' button and 'View record' link steps need NO override at all -- both tenants render them from the same shared template with identical accessible names. Apply with: python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 --overlay artifacts/overrides/lookup_member_savings_balance@b.json --param member_id=1002",
+  "_comment": "Overlay adapting lookup_member_savings_balance@1 (recorded against Tenant A) to Tenant B, which runs the SAME underlying mock app configured/branded differently. Only what actually differs is patched: origin+route prefix, the checkpoint's route prefix, and the ID field's locator ladder (Tenant B labels it 'Acct Holder No.' and names the input 'acct_holder_no'). The 'Search' button and 'View record' link steps need NO override at all -- both tenants render them from the same shared template with identical accessible names. Apply with: python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 --overlay artifacts/overrides/lookup_member_savings_balance@b.json --param member_id=1002",
   "capability_id": "lookup_member_savings_balance",
   "target": {
     "tenant": "b",
@@ -12,7 +12,16 @@
   "step_overrides": {
     "s1": {
       "target": [
-        {"strategy": "css_name_attr", "value": "input[name='acct_holder_no']"}
+        {
+          "strategy": "label_proximity",
+          "value": "Acct Holder No.|input",
+          "confidence": 0.85
+        },
+        {
+          "strategy": "css_name_attr",
+          "value": "input[name='acct_holder_no']",
+          "confidence": 0.75
+        }
       ]
     },
     "s2": {
