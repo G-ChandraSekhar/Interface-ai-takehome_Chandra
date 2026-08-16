@@ -8,8 +8,12 @@ from another. So the console's HTTP handlers only ever flip the lease's
 state (thread-safe, protected by a lock) and never touch `page` directly.
 All actual Playwright work -- attaching/detaching the human-action
 recorder -- happens inside wait_for_handback(), which runs on the SAME
-thread that owns the page (the paused discovery loop or replay engine),
-polling the lease and reacting to state changes itself.
+thread that owns the page (the paused discovery loop or replay engine).
+
+Waiting is event-driven, via ControlLease.wait_for_state() -- not polled.
+See lease.py's docstring for why: a polling design has to choose an
+interval, and any interval leaves a window where a brief state can be
+missed entirely; event-driven waiting has no such window.
 """
 
 from __future__ import annotations
@@ -65,29 +69,37 @@ class HandoffController:
         self.evidence.log_event("intervention_created", **self.current_intervention.to_dict())
         return self.current_intervention
 
-    def wait_for_handback(self, poll_interval=0.5, timeout=None):
-        start = time.time()
-        attached = False
-        while True:
-            state = self.lease.state
+    def wait_for_handback(self, timeout=None):
+        """Blocks until an operator has taken control and handed back, or
+        raises TimeoutError if `timeout` seconds elapse first (None waits
+        indefinitely, appropriate for a real human who may take a while).
+        Returns the list of recorded human actions."""
+        start = time.monotonic()
 
-            if state == LeaseState.HUMAN_CONTROL and not attached:
-                if self.page is not None:
-                    self._recorder = HumanActionRecorder(self.page)
-                    self._recorder.attach()
-                attached = True
-                self.evidence.log_event("operator_took_control")
+        def remaining():
+            if timeout is None:
+                return None
+            return max(0.0, timeout - (time.monotonic() - start))
 
-            if state == LeaseState.RESUMING:
-                human_actions = []
-                if attached and self._recorder is not None:
-                    self._recorder.detach()
-                    human_actions = self._recorder.actions
-                self.evidence.log_event("operator_handed_back", human_actions=human_actions)
-                self.lease.resume_complete()
-                return human_actions
+        got_control = self.lease.wait_for_state(LeaseState.HUMAN_CONTROL, timeout=remaining())
+        if not got_control:
+            raise TimeoutError("Timed out waiting for an operator to take control")
 
-            if timeout is not None and (time.time() - start) > timeout:
-                raise TimeoutError("Timed out waiting for operator hand-back")
+        if self.page is not None:
+            self._recorder = HumanActionRecorder(self.page)
+            self._recorder.attach()
+        self.evidence.log_event("operator_took_control")
 
-            time.sleep(poll_interval)
+        got_resuming = self.lease.wait_for_state(LeaseState.RESUMING, timeout=remaining())
+        if not got_resuming:
+            if self._recorder is not None:
+                self._recorder.detach()
+            raise TimeoutError("Timed out waiting for the operator to hand back")
+
+        human_actions = []
+        if self._recorder is not None:
+            self._recorder.detach()
+            human_actions = self._recorder.actions
+        self.evidence.log_event("operator_handed_back", human_actions=human_actions)
+        self.lease.resume_complete()
+        return human_actions

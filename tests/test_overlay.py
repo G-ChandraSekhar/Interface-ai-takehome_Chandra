@@ -4,7 +4,9 @@ from datetime import datetime, timezone
 
 import pytest
 
-from src.artifact.overlay import apply_overlay
+from pathlib import Path
+
+from src.artifact.overlay import OverlayMismatchError, apply_overlay, apply_overlay_from_file, load_overlay
 from src.artifact.schema import (
     Artifact,
     ArtifactStep,
@@ -126,6 +128,48 @@ def test_overlay_does_not_mutate_the_base_artifact():
     base = _base_artifact()
     apply_overlay(base, TENANT_B_OVERLAY)
     assert base.target.tenant == "a"
+
+
+def test_overlay_rejects_mismatched_capability_id():
+    """The real safety gap this closes: applying an overlay written for a
+    DIFFERENT capability would otherwise silently produce a structurally
+    valid but semantically nonsensical artifact -- e.g. patching a
+    sub-account artifact's steps with a lookup artifact's overlay."""
+    base = _base_artifact()
+    wrong_overlay = dict(TENANT_B_OVERLAY, capability_id="open_sub_account")
+    with pytest.raises(OverlayMismatchError):
+        apply_overlay(base, wrong_overlay)
+
+
+def test_overlay_accepts_matching_capability_id():
+    base = _base_artifact()
+    right_overlay = dict(TENANT_B_OVERLAY, capability_id="lookup_member_savings_balance")
+    overlaid = apply_overlay(base, right_overlay)
+    assert overlaid.target.tenant == "b"
+
+
+def test_overlay_without_capability_id_still_works():
+    """The check only guards when the field is present -- an overlay
+    written before this field existed (or hand-written without it) still
+    applies normally, just without this particular safety net."""
+    base = _base_artifact()
+    overlaid = apply_overlay(base, TENANT_B_OVERLAY)  # no capability_id key at all
+    assert overlaid.target.tenant == "b"
+
+
+def test_the_real_committed_overlay_file_has_a_capability_id_and_applies_cleanly():
+    """Not a synthetic fixture -- loads the actual file committed to the
+    repo and confirms it both carries the new safety field and still
+    applies correctly to a matching base artifact."""
+    repo_root = Path(__file__).resolve().parents[1]
+    overlay_path = repo_root / "artifacts" / "overrides" / "lookup_member_savings_balance@b.json"
+    overlay = load_overlay(overlay_path)
+    assert overlay.get("capability_id") == "lookup_member_savings_balance"
+
+    base = _base_artifact()
+    overlaid = apply_overlay_from_file(base, overlay_path)
+    assert overlaid.target.tenant == "b"
+    assert overlaid.target.route_prefix == "/operations"
 
 
 def test_overlay_rejects_unknown_step_id():

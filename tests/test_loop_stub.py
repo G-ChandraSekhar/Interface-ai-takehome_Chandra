@@ -185,6 +185,10 @@ def test_stuck_with_handoff_escalates_and_a_human_can_resolve_it(mock_app_a):
         take = requests.post(console_url + "/take-control")
         assert take.json()["state"] == "human_control"
 
+        # A short pause here just gives a moment before hand-back -- not
+        # working around a poll interval (waiting is event-driven via a
+        # Queue now, see lease.py/controller.py), just realistic timing for
+        # this test's simulated operator.
         _time.sleep(0.3)
 
         handback = requests.post(console_url + "/hand-back")

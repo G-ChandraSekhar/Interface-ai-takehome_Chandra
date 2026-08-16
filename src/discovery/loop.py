@@ -12,9 +12,9 @@ The loop ends when:
   - the model calls `finish` after marking every required output -> SUCCESS
   - the model calls `finish` early (not all outputs marked) -> FAILURE (declared done prematurely)
   - the model responds with plain text instead of a tool call, twice in a
-    row -> escalates to a human if handoff=True, else STUCK
-  - the step/duration budget from the policy engine is exceeded -> escalates
-    to a human if handoff=True, else STUCK
+    row -> STUCK (this is where Phase 6 escalation will eventually hook in;
+    for Phase 2 we just record it as a stopping condition)
+  - the step/duration budget from the policy engine is exceeded -> STUCK
 """
 
 from __future__ import annotations
@@ -76,6 +76,11 @@ def run_discovery(
     console_port: int = 4590,
 ) -> DiscoveryResult:
     policy = PolicyEngine()
+    # llm_client injection point exists so tests can exercise the full loop
+    # control flow (marking outputs, finish handling, stuck detection,
+    # budget limits) with a scripted stub, without needing a live
+    # OPENAI_API_KEY or network access. Production callers (cli.py) leave
+    # this as None and get the real OpenAI-backed client.
     llm = llm_client or OpenAIDiscoveryClient(model=model)
 
     run_id = run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid.uuid4().hex[:6]}"
@@ -138,7 +143,9 @@ def run_discovery(
             print("\n[HANDOFF] Discovery needs a human: " + reason)
             print("[HANDOFF] Open " + console_url + " and click 'Take control'.")
             print("[HANDOFF] Operate the visible browser window directly, then click 'Hand back'.\n")
-            handoff_controller.wait_for_handback(poll_interval=0.1)
+            # Event-driven, not polled -- see lease.py's docstring. No
+            # interval to tune; wakes immediately on the actual transition.
+            handoff_controller.wait_for_handback()
             print("[HANDOFF] Control returned to the agent. Resuming discovery.\n")
             messages.append(
                 {
@@ -160,6 +167,10 @@ def run_discovery(
             if budget.decision == PolicyDecision.DENY:
                 evidence.log_event("budget_exceeded", reason=budget.reason)
                 if escalate(budget.reason):
+                    # Give the resumed run a fresh budget window rather than
+                    # immediately re-tripping the same limit on the very next
+                    # iteration -- the human's time holding control doesn't
+                    # count against the agent's step/duration budget.
                     step_count = 0
                     start_time = time.time()
                     continue
@@ -198,6 +209,7 @@ def run_discovery(
                     message = reason
                     evidence.screenshot(page, "stuck")
                     break
+                # nudge and let it try again next loop iteration
                 messages.append(
                     {
                         "role": "user",
@@ -251,6 +263,9 @@ def run_discovery(
                     target_candidates=target_candidates,
                 )
 
+                # Every tool_call the model made in this turn needs exactly
+                # one matching tool response appended, in order, before the
+                # next API call -- OpenAI rejects the request otherwise.
                 messages.append(
                     {
                         "role": "tool",
@@ -261,9 +276,21 @@ def run_discovery(
 
                 if result.is_mark_output:
                     marked_outputs[result.output_name] = result.output_value
+                    # Captured here, not guessed later: at this exact
+                    # moment we know both the value the model saw AND the
+                    # full page text it saw it on, so we can look up which
+                    # label sat next to that value -- this becomes the
+                    # artifact's extraction rule for this output (Phase 4).
                     extraction_label = find_label_for_value(
                         observation.page_text, str(result.output_value)
                     )
+                    # The in-memory `marked_outputs` above stays raw -- the
+                    # caller of run_discovery (the CLI, ultimately a human or
+                    # calling agent) legitimately needs the real value; that
+                    # IS the capability. What gets written to disk is
+                    # different: evidence and result.json are committed
+                    # artifacts, so any output field named in
+                    # sensitive_output_fields is masked before persistence.
                     logged_value = (
                         redact_value(str(result.output_value))
                         if result.output_name in policy.sensitive_output_fields
@@ -303,6 +330,10 @@ def run_discovery(
     final_result = {
         "status": status,
         "message": message,
+        # Persisted result.json is a committed artifact -- redact sensitive
+        # output fields here too, same rule as the per-step log above. The
+        # DiscoveryResult returned from this function (below) still carries
+        # the raw values for the immediate caller.
         "outputs": {
             k: (redact_value(str(v)) if k in policy.sensitive_output_fields else v)
             for k, v in marked_outputs.items()

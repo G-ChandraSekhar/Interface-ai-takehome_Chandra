@@ -610,6 +610,47 @@ via Tenant B's differently-branded UI, different route prefix, and
 different underlying form field, using an artifact that was never once run
 against Tenant B during discovery.
 
+## Production-hardening pass
+
+After building the vertical slice, I read a colleague's independent TypeScript
+implementation of the same assignment in detail (source files, not just its
+README/REPORT) and adopted three specific improvements where they were
+genuinely better engineering, not just different:
+
+1. **Event-driven handoff waiting, not polling** (`src/escalation/lease.py`).
+   The original design polled the lease's state on an interval; a very brief
+   `HUMAN_CONTROL` window could fall between two polls and be missed
+   entirely (a real bug this project hit and initially "fixed" by shortening
+   the interval — which narrows the race without removing it). Rewriting to
+   use a `queue.Queue` of every transition, drained in order, removes the
+   bug class by construction: a target state is found even if a later
+   transition already happened before the wait started. **Note**: the first
+   attempt at this fix used a bare `threading.Event`, which turned out to
+   have the *same* underlying bug relocated (an Event only tells you
+   "something changed," not "which states you passed through" — a waiter
+   re-checking *current* state can still skip an intermediate one that came
+   and went between wake-ups). A dedicated test
+   (`test_wait_for_handback_wakes_immediately_not_on_a_poll_tick`) exercises
+   exactly the zero-gap case that would have broken the Event-only version.
+
+2. **A single global exception handler for the operator console**
+   (`src/escalation/console.py`), replacing per-endpoint `try/except`
+   around the same `IllegalLeaseTransition`. Functionally identical today,
+   but any future endpoint that touches the lease is covered automatically
+   rather than needing its own copy-pasted handling.
+
+3. **Overlay/base-artifact mismatch check** (`src/artifact/overlay.py`).
+   Applying an overlay written for one capability to a *different* base
+   artifact would previously succeed silently, producing a structurally
+   valid but semantically nonsensical result (e.g. patching a sub-account
+   artifact's steps with a lookup artifact's overlay). Overlays now
+   optionally declare `capability_id`, checked against the base artifact's
+   own id before anything is patched.
+
+All three are covered by new or updated tests (`tests/test_escalation.py`,
+`tests/test_overlay.py`) — run `python3 -m pytest tests/test_escalation.py
+tests/test_overlay.py -v` to see them (27 passed, no browser needed).
+
 ## Repository guide
 
 - `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection (Phase 0)

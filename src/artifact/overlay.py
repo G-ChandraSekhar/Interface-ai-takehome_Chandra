@@ -28,9 +28,33 @@ import json
 from src.artifact.schema import Artifact
 
 
+class OverlayMismatchError(ValueError):
+    pass
+
+
 def apply_overlay(base, overlay):
     """Returns a NEW Artifact with the overlay's fields merged in -- the
-    base artifact object is never mutated."""
+    base artifact object is never mutated.
+
+    If the overlay declares "capability_id", it must match the base
+    artifact's artifact_id, or this raises. Without this check, applying
+    the wrong tenant's overlay to the wrong base artifact would silently
+    produce a structurally valid but semantically nonsensical artifact --
+    e.g. patching a sub-account-opening artifact's steps with a lookup
+    artifact's overlay. The field is optional (older or hand-written
+    overlays may not have it) so this only guards when the information is
+    actually present, but every overlay this project writes going forward
+    includes it.
+    """
+    if "capability_id" in overlay and overlay["capability_id"] != base.artifact_id:
+        raise OverlayMismatchError(
+            "Overlay targets capability '"
+            + overlay["capability_id"]
+            + "' but base artifact is '"
+            + base.artifact_id
+            + "' -- refusing to apply a mismatched overlay."
+        )
+
     data = json.loads(base.model_dump_json())
 
     if "target" in overlay:

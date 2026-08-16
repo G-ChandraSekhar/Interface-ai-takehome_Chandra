@@ -18,14 +18,24 @@ session at a time.
 
 from __future__ import annotations
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from src.escalation.lease import IllegalLeaseTransition, LeaseState
 
 
 def build_app(controller):
     app = FastAPI(title="Operator Console")
+
+    # A single, systemic handler for every IllegalLeaseTransition, rather
+    # than a try/except duplicated in each endpoint that can raise one.
+    # Catches this class of error uniformly -- e.g. any future endpoint
+    # added here that touches the lease is covered automatically, not just
+    # the two that were hand-patched after the double-click crash this was
+    # originally fixed for.
+    @app.exception_handler(IllegalLeaseTransition)
+    async def illegal_transition_handler(request: Request, exc: IllegalLeaseTransition):
+        return JSONResponse(status_code=409, content={"detail": str(exc)})
 
     @app.get("/", response_class=HTMLResponse)
     def index():
@@ -57,6 +67,11 @@ def build_app(controller):
         else:
             action_html = "<p>No action available in state: " + state.value + "</p>"
 
+        # Buttons call the API via fetch() rather than a plain HTML form
+        # POST -- a plain form means a browser refresh can silently
+        # resubmit the last action (exactly what caused the 500 this
+        # replaced), whereas refreshing after a fetch() only ever re-does
+        # a safe GET of this page.
         script = (
             "<script>"
             "async function act(path) {"
@@ -78,24 +93,12 @@ def build_app(controller):
 
     @app.post("/take-control")
     def take_control():
-        try:
-            controller.lease.take_control()
-        except IllegalLeaseTransition:
-            raise HTTPException(
-                status_code=409,
-                detail="Already in state '" + controller.lease.state.value + "' -- nothing to take control of.",
-            )
+        controller.lease.take_control()
         return {"state": controller.lease.state.value}
 
     @app.post("/hand-back")
     def hand_back():
-        try:
-            controller.lease.hand_back()
-        except IllegalLeaseTransition:
-            raise HTTPException(
-                status_code=409,
-                detail="Already in state '" + controller.lease.state.value + "' -- nothing to hand back.",
-            )
+        controller.lease.hand_back()
         return {"state": controller.lease.state.value}
 
     @app.get("/status")

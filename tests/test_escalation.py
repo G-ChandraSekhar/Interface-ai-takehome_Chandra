@@ -193,7 +193,7 @@ def test_wait_for_handback_blocks_until_operator_acts_then_returns_recorded_acti
     result_holder = {}
 
     def run_wait():
-        result_holder["actions"] = controller.wait_for_handback(poll_interval=0.05, timeout=5)
+        result_holder["actions"] = controller.wait_for_handback(timeout=5)
 
     waiter = threading.Thread(target=run_wait)
     waiter.start()
@@ -202,7 +202,17 @@ def test_wait_for_handback_blocks_until_operator_acts_then_returns_recorded_acti
     assert waiter.is_alive()
 
     controller.lease.take_control()
-    time.sleep(0.1)
+    # A brief wait here is for the recorder to actually finish attaching on
+    # the OTHER thread (a few microseconds of Python, not a race with the
+    # transition-detection fix above) -- a real human always has at least
+    # this much of a gap between "control granted" and their first click,
+    # since they have to physically move a mouse. The dedicated
+    # zero-gap test below proves the actual transition detection is race-free
+    # even with literally no gap; this one is testing action recording.
+    for _ in range(200):
+        if controller._recorder is not None:
+            break
+        time.sleep(0.005)
     page.simulate_navigation("http://localhost/desk/member/9999")
     controller.lease.hand_back()
 
@@ -232,4 +242,42 @@ def test_wait_for_handback_times_out_if_operator_never_acts():
         page_url="http://localhost/desk",
     )
     with pytest.raises(TimeoutError):
-        controller.wait_for_handback(poll_interval=0.05, timeout=0.3)
+        controller.wait_for_handback(timeout=0.3)
+
+
+def test_wait_for_handback_wakes_immediately_not_on_a_poll_tick():
+    """The concrete proof event-driven waiting removes the race a polling
+    design has: hand-back happens almost instantly after take-control (a
+    window far shorter than the old default 0.5s poll interval), and the
+    wait must still correctly observe HUMAN_CONTROL and complete -- not
+    silently skip straight to RESUMING the way the old polling
+    implementation could."""
+    evidence = _FakeEvidence()
+    controller = HandoffController(evidence, page=_FakePage())
+    controller.request_intervention(
+        run_id="run1",
+        run_kind="discovery",
+        goal_or_capability="test goal",
+        step_id=None,
+        reason="stuck",
+        page_url="http://localhost/desk",
+    )
+
+    result_holder = {}
+
+    def run_wait():
+        result_holder["actions"] = controller.wait_for_handback(timeout=5)
+
+    waiter = threading.Thread(target=run_wait)
+    waiter.start()
+    time.sleep(0.05)
+
+    controller.lease.take_control()
+    controller.lease.hand_back()  # immediately -- no sleep at all in between
+
+    waiter.join(timeout=5)
+    assert not waiter.is_alive()
+
+    events = [e for e, _ in evidence.events]
+    assert "operator_took_control" in events
+    assert "operator_handed_back" in events
