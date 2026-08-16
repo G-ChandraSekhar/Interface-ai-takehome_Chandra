@@ -19,7 +19,8 @@ with no model in the decision loop. See `REPORT.md` for the design write-up
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.9+ (developed and tested against 3.9; the codebase deliberately
+  avoids `X | None` syntax at runtime for this reason — see REPORT.md)
 - An OpenAI API key (only needed for live discovery runs; replay needs no key)
 
 ## Setup
@@ -91,9 +92,10 @@ Expected: 14 tests pass, covering:
 - safe/read routes are allowed unconditionally
 - mutating routes (e.g. opening a sub-account) require either an approved
   artifact or explicit confirmation
-- irreversible routes (the final confirm step) require live confirmation
-  *even if* the artifact is approved -- approval of the capability doesn't
-  waive confirmation on its most consequential step
+- irreversible routes (the final confirm step) can *never* run unattended --
+  no artifact approval and no confirmation flag authorizes them; they always
+  route to a human taking control of the live session (see the irreversible
+  section below)
 - step-count and duration budget limits are enforced
 
 `src/guardrails/redact.py` also has a first pass at field-name-based
@@ -399,13 +401,13 @@ guardrails, same evidence trail -- this isn't a second execution path, it's
 a second front door onto the one that already exists.
 
 **Deliberate safety boundary**: this API never lets a caller supply
-`mutate_confirmed`/`irreversible_confirmed` -- both are hardcoded `False`.
-A mutating-tier artifact can only run unattended through this API if it's
-itself marked `approved` (a human reviewer's decision baked into the
-artifact file, not something a calling agent can set). An irreversible-tier
-artifact can **never** run through this API at all -- by construction it
-always comes back denied, forcing that class of action through the
-human-supervised CLI/escalation path instead.
+`mutate_confirmed` -- it's hardcoded `False`, so a mutating-tier artifact
+can only run unattended here if it's itself marked `approved` (a human
+reviewer's decision baked into the artifact file, not something a calling
+agent can set). An irreversible-tier artifact can **never** run through
+this API at all: the API passes no handoff route, and an irreversible step
+without a human to route to fails closed by construction. That class of
+action is reachable only through the human-supervised CLI escalation path.
 
 ### Tests (no browser needed for these)
 
@@ -478,14 +480,11 @@ actual page-touching work (attaching/detaching the recorder) happens inside
 `wait_for_handback()`, on the same thread that owns the page, by polling
 the lease and reacting to state changes itself.
 
-**Scope note**: the richest demo of this (a human entering a supervisor
-code on an irreversible confirm step) needs a mutating sub-account
-capability, which was never recorded -- the one capability built throughout
-this project (`lookup_member_savings_balance`) is entirely safe-tier. The
-mechanism for that scenario is built and unit-tested (see
-`tests/test_escalation.py`'s lease/console tests), but not exercised live
-end-to-end. What *is* demonstrated live below is discovery's stuck and
-budget-exceeded paths, which are exercisable with the existing artifact.
+**Scope note**: this section demonstrates escalation from discovery's stuck
+and budget-exceeded paths. The *irreversible-tier* escalation — where an
+agent is structurally forbidden from completing an action and a human must
+perform it — is covered separately below, with its own live evidence and a
+real mutating capability (`open_sub_account`).
 
 ### Tests
 
@@ -729,6 +728,64 @@ Expected: **37 passed** — covering every rejection reason, artifact-policy
 enforcement for both action-kind and origin violations, backwards
 compatibility for policy-less artifacts, and confidence-score assignment.
 
+## Irreversible actions: never unattended
+
+The strongest safety property in the system, and the one with the most
+direct live evidence. An **irreversible** step (the final "Confirm & Open
+Account") cannot execute without a human taking control of the live session
+at the moment it happens. This is structural, not flag-dependent:
+`PolicyEngine` ignores confirmation flags entirely for that tier, there is
+no CLI flag that authorizes it, and an artifact marked `approved` doesn't
+help either. Replay and discovery both route such a step to the operator
+console; without a handoff route configured, they fail closed.
+
+Critically, after a human performs the action, the agent does **not**
+re-perform it — replay verifies the resulting state instead, and discovery
+is told explicitly not to retry. Re-clicking an irreversible control after
+a human already actioned it would be exactly the double-execution this tier
+exists to prevent.
+
+### Both halves, proven live (committed evidence)
+
+**Blocked, with no human available** —
+`evidence/discovery_20260816T112803Z_1a2e4f/`:
+```bash
+python3 -m src.cli discover \
+  --goal "For member 4521, open a new Holiday Savings sub-account with a 25.00 opening deposit, and confirm it. Report the member's name and the account type that was opened." \
+  --tenant a --param member_id=4521 \
+  --output member_name --output account_type --mutate
+```
+The model completes 9 steps, reaches the confirm step, and is refused. Its
+own final message: *"it requires a human to take control for irreversible
+actions."* The mock app's request log confirms it never POSTed to
+`/subaccount/confirm`.
+
+**Escalated and resolved by a human** —
+`evidence/discovery_20260816T113022Z_b107e3/`, same command plus
+`--handoff`. The run pauses and prints a console URL; open it, click **Take
+control**, click "Confirm & Open Account" yourself in the live Chromium
+window, then click **Hand back**. The agent resumes, verifies, and finishes
+(`status: success`, 10 steps).
+
+### The resulting mutating capability
+
+`artifacts/open_sub_account@1.json` — distilled from the successful run. Note
+what it contains: six steps ending at the **review** page, with the
+irreversible confirm step correctly *absent*, because that step isn't
+something the agent is permitted to do. Its checkpoint is the review page —
+exactly where agent authority ends. Its policy is
+`["click", "select", "type"]` (it needed `select` for the account-type
+dropdown, which the read-only lookup capability didn't) and still no
+`navigate`.
+
+It replays deterministically against a different member than discovery used:
+```bash
+python3 -m src.cli replay --artifact-id open_sub_account --version 1 \
+  --param member_id=8832 --mutate
+```
+Expected: `success`, **Marcus Ojo / Holiday Savings**
+(`evidence/replay_20260816T113525Z_3d7306/`).
+
 ## Repository guide
 
 - `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection (Phase 0)
@@ -740,5 +797,42 @@ compatibility for policy-less artifacts, and confidence-score assignment.
 - `src/escalation/` — control lease, intervention model, operator console, handoff coordination (Phase 6)
 - `artifacts/` — saved capability artifacts; `artifacts/overrides/` holds tenant overlays (Phase 3, 7)
 - `config/` — policy configuration
-- `evidence/` — committed discovery/replay run logs from every phase
+- `evidence/` — committed discovery/replay run logs; see the evidence index below
 - `REPORT.md` — the design write-up (Phase 8)
+
+## Evidence index
+
+Every folder below is a real run against the live mock app in a real
+browser — no synthetic or hand-written logs. Folder names are timestamps;
+this maps them to what each one demonstrates.
+
+| Scenario | Folder | Shows |
+|---|---|---|
+| Live LLM discovery (read-only) | `discovery_20260816T111307Z_9b5d7f/` | The genuine model-driven run the lookup artifact was distilled from |
+| Replay success | `replay_20260816T111405Z_c925d9/` | Deterministic replay, zero LLM, Tenant A |
+| Replay with a *different* member | `replay_20260816T090019Z_d17d60/` | Parameterization is real: member 8832 → Marcus Ojo / 918.20 |
+| Business outcome — not found | `replay_20260816T090020Z_6dce12/` | `MEMBER_NOT_FOUND`, a legitimate answer, not a crash |
+| Business outcome — permission denied | `replay_20260816T090021Z_5add95/` | `PERMISSION_DENIED`, distinct from the above |
+| Recoverable exceptional state | `replay_20260816T090022Z_14cc0e/` | Session-expired interstitial dismissed; `recovery_applied: True`, run still succeeds |
+| Hard failure | `replay_20260816T105504Z_560603/` | Injected app error → `status: failure`, class `app_error`, with screenshot |
+| Human handoff (stuck/budget path) | `discovery_20260816T093504Z_5b952c/` | Real ~40s gap between `operator_took_control` and `operator_handed_back` |
+| **Irreversible blocked** | `discovery_20260816T112803Z_1a2e4f/` | Agent refused the confirm step with no human available — fails closed |
+| **Irreversible resolved by human** | `discovery_20260816T113022Z_b107e3/` | Escalated, human performed it, agent resumed and completed |
+| Mutating capability replay | `replay_20260816T113525Z_3d7306/` | `open_sub_account` replayed for a different member (8832) |
+| Tenant B via overlay | `replay_20260816T111549Z_2b9383/` | Same artifact + small patch → Priya Nandakumar / 5,002.00 on Tenant B |
+| Capability API invocation | `replay_20260816T090842Z_5d4451/` | Invoked over HTTP by the demo agent, not the CLI |
+| Redaction verification | `replay_20260816T105541Z_e3cd4c/` | `result.json` shows `***REDACTED***` for financial outputs |
+
+Each folder contains `log.jsonl` (structured step-by-step trace) and
+`result.json`. Runs that ended in a non-success state also carry a
+`screenshots/` capture of the page at that moment; discovery runs capture
+final-state screenshots as well.
+
+The `evidence/` directory also holds several earlier runs of the same
+scenarios, kept because they're genuine and show the project's actual
+history rather than a curated final state — e.g. `discovery_…ea0a12`,
+`…0bb3ad`, and `…6fc61e` are earlier discovery captures from before the
+artifact schema gained output extraction and per-artifact policy;
+`replay_…939a24`, `…2fbb47`, `…802bad`, and `…c10814` are earlier
+replay/overlay runs from the corresponding stages. The table above points
+to the current, most complete run for each scenario.
