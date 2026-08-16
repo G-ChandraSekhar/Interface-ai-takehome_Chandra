@@ -2,7 +2,7 @@
 {% block content %}
 <table class="grid" width="100%"><tr><td>
   <p><b>Member Search</b></p>
-  <form method="get" action="search">
+  <form method="get" action="{{ tenant.route_prefix }}/search">
     <table>
       <tr class="field-row">
         <td>{{ tenant.member_id_label }}</td>

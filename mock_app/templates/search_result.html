@@ -6,7 +6,7 @@
     <tr><th>{{ tenant.member_id_label }}</th><th>Action</th></tr>
     <tr>
       <td>{{ member_id }}</td>
-      <td><a href="member/{{ member_id }}">View record</a></td>
+      <td><a href="{{ tenant.route_prefix }}/member/{{ member_id }}">View record</a></td>
     </tr>
   </table>
 </td></tr></table>

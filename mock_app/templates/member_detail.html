@@ -24,6 +24,6 @@
     {% endfor %}
     </table>
   </table>
-  <p><a href="{{ member.member_id }}/subaccount/new">Open Sub-Account</a></p>
+  <p><a href="{{ tenant.route_prefix }}/member/{{ member.member_id }}/subaccount/new">Open Sub-Account</a></p>
 </td></tr></table>
 {% endblock %}

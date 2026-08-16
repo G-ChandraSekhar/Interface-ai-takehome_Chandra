@@ -2,7 +2,7 @@
 {% block content %}
 <table class="grid" width="100%"><tr><td>
   <p><b>Open Sub-Account for {{ member.name }}</b></p>
-  <form method="post" action="review">
+  <form method="post" action="{{ tenant.route_prefix }}/member/{{ member.member_id }}/subaccount/review">
     <table>
       <tr class="field-row">
         <td>Account Type</td>

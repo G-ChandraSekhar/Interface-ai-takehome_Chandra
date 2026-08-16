@@ -8,9 +8,15 @@
 
 # Only these origins may be navigated to or acted on. Anything else is
 # blocked outright, no matter what the LLM or a replayed artifact requests.
+# Both hostnames are listed for each tenant because localhost and 127.0.0.1
+# are different origins to a browser/policy check even though they resolve
+# to the same machine -- whichever one Playwright or a test happens to use
+# must be allowlisted explicitly, nothing is implicitly trusted.
 allowed_origins:
   - "http://localhost:4478"   # Tenant A
+  - "http://127.0.0.1:4478"   # Tenant A (loopback IP form)
   - "http://localhost:4479"   # Tenant B
+  - "http://127.0.0.1:4479"   # Tenant B (loopback IP form)
 
 # Action types the agent is permitted to perform at all. Extending this list
 # is a deliberate policy change, not something a run can talk its way into.

@@ -2,7 +2,7 @@
 {% block content %}
 <table class="grid" width="100%"><tr><td>
   <p class="err">Your session has expired.</p>
-  <form method="get" action="{{ member_id }}">
+  <form method="get" action="{{ tenant.route_prefix }}/member/{{ member_id }}">
     <button type="submit">Continue</button>
   </form>
 </td></tr></table>

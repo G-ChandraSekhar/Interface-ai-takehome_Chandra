@@ -12,7 +12,7 @@
     {% if supervisor_error %}<p class="err">Invalid supervisor code.</p>{% endif %}
     <p>This action requires supervisor approval.</p>
   {% endif %}
-  <form method="post" action="confirm">
+  <form method="post" action="{{ tenant.route_prefix }}/member/{{ member.member_id }}/subaccount/confirm">
     <input type="hidden" name="account_type" value="{{ account_type }}">
     <input type="hidden" name="opening_deposit" value="{{ opening_deposit }}">
     {% if require_supervisor %}
