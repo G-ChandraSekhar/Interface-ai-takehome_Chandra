@@ -1,0 +1,14 @@
+{% extends "_base.html" %}
+{% block content %}
+<table class="grid" width="100%"><tr><td>
+  <p><b>Sign in</b></p>
+  {% if error %}<p class="err">{{ error }}</p>{% endif %}
+  <form method="post">
+    <table>
+      <tr class="field-row"><td>Username</td><td><input type="text" name="username"></td></tr>
+      <tr class="field-row"><td>Password</td><td><input type="password" name="password"></td></tr>
+      <tr class="field-row"><td colspan="2"><button type="submit">Sign In</button></td></tr>
+    </table>
+  </form>
+</td></tr></table>
+{% endblock %}

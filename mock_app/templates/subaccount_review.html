@@ -1,0 +1,27 @@
+{% extends "_base.html" %}
+{% block content %}
+<table class="grid" width="100%"><tr><td>
+  <p><b>Confirm Sub-Account Details</b></p>
+  <table class="grid">
+    <tr><th>Field</th><th>Value</th></tr>
+    <tr><td>Member</td><td>{{ member.name }}</td></tr>
+    <tr><td>Account Type</td><td>{{ account_type }}</td></tr>
+    <tr><td>Opening Deposit</td><td>{{ opening_deposit }}</td></tr>
+  </table>
+  {% if require_supervisor %}
+    {% if supervisor_error %}<p class="err">Invalid supervisor code.</p>{% endif %}
+    <p>This action requires supervisor approval.</p>
+  {% endif %}
+  <form method="post" action="confirm">
+    <input type="hidden" name="account_type" value="{{ account_type }}">
+    <input type="hidden" name="opening_deposit" value="{{ opening_deposit }}">
+    {% if require_supervisor %}
+      <table><tr class="field-row">
+        <td>Supervisor Code</td>
+        <td><input type="text" name="supervisor_code"></td>
+      </tr></table>
+    {% endif %}
+    <button type="submit">Confirm &amp; Open Account</button>
+  </form>
+</td></tr></table>
+{% endblock %}

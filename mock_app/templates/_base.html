@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>{{ tenant.display_name }}</title>
+<style>
+  body { font-family: Tahoma, Geneva, sans-serif; font-size: 13px; background: #d8d8d8; margin: 0; }
+  table { border-collapse: collapse; }
+  .outer { width: 760px; margin: 20px auto; background: #f4f4f0; border: 2px solid #7a7a7a; }
+  .banner { background: {{ '#2b4a7a' if tenant.theme_class == 'theme-a' else '#5a3a7a' }}; color: white; padding: 8px 12px; font-weight: bold; }
+  .content { padding: 14px; }
+  table.grid td, table.grid th { border: 1px solid #999; padding: 4px 8px; }
+  table.grid th { background: #ccc; text-align: left; }
+  .err { color: #a00; font-weight: bold; }
+  .field-row td { padding: 3px 6px; }
+</style>
+</head>
+<body>
+<div class="outer">
+  <div class="banner">{{ tenant.display_name }}</div>
+  <div class="content">
+    {% block content %}{% endblock %}
+  </div>
+</div>
+</body>
+</html>

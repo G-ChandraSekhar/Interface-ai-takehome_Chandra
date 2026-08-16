@@ -1,0 +1,29 @@
+{% extends "_base.html" %}
+{% block content %}
+<table class="grid" width="100%"><tr><td>
+  <p><b>Member Record</b></p>
+  <table class="grid">
+    <table class="grid">
+    {% for col in tenant.detail_columns %}
+      <tr class="field-row">
+        <td>
+          {%- if col == 'name' -%}Member Name
+          {%- elif col == 'member_id' -%}{{ tenant.member_id_label }}
+          {%- elif col == 'savings_balance' -%}Regular Savings
+          {%- elif col == 'status' -%}Status
+          {%- endif -%}
+        </td>
+        <td>
+          {%- if col == 'name' -%}{{ member.name }}
+          {%- elif col == 'member_id' -%}{{ member.member_id }}
+          {%- elif col == 'savings_balance' -%}{{ member.savings_balance }}
+          {%- elif col == 'status' -%}{{ member.status }}
+          {%- endif -%}
+        </td>
+      </tr>
+    {% endfor %}
+    </table>
+  </table>
+  <p><a href="{{ member.member_id }}/subaccount/new">Open Sub-Account</a></p>
+</td></tr></table>
+{% endblock %}

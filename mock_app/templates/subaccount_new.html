@@ -1,0 +1,24 @@
+{% extends "_base.html" %}
+{% block content %}
+<table class="grid" width="100%"><tr><td>
+  <p><b>Open Sub-Account for {{ member.name }}</b></p>
+  <form method="post" action="review">
+    <table>
+      <tr class="field-row">
+        <td>Account Type</td>
+        <td>
+          <select name="account_type">
+            <option value="Holiday Savings">Holiday Savings</option>
+            <option value="Goal Savings">Goal Savings</option>
+          </select>
+        </td>
+      </tr>
+      <tr class="field-row">
+        <td>Opening Deposit</td>
+        <td><input type="text" name="opening_deposit" value="25.00"></td>
+      </tr>
+      <tr class="field-row"><td colspan="2"><button type="submit">Continue</button></td></tr>
+    </table>
+  </form>
+</td></tr></table>
+{% endblock %}

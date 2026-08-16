@@ -1,0 +1,15 @@
+{% extends "_base.html" %}
+{% block content %}
+<table class="grid" width="100%"><tr><td>
+  <p><b>Member Search</b></p>
+  <form method="get" action="search">
+    <table>
+      <tr class="field-row">
+        <td>{{ tenant.member_id_label }}</td>
+        <td><input type="text" name="{{ tenant.member_id_field_name }}"></td>
+      </tr>
+      <tr class="field-row"><td colspan="2"><button type="submit">Search</button></td></tr>
+    </table>
+  </form>
+</td></tr></table>
+{% endblock %}

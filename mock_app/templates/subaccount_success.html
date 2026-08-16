@@ -1,0 +1,11 @@
+{% extends "_base.html" %}
+{% block content %}
+<table class="grid" width="100%"><tr><td>
+  <p><b>Sub-account opened successfully.</b></p>
+  <table class="grid">
+    <tr><td>Member</td><td>{{ member.name }}</td></tr>
+    <tr><td>Account Type</td><td>{{ account_type }}</td></tr>
+    <tr><td>Opening Deposit</td><td>{{ opening_deposit }}</td></tr>
+  </table>
+</td></tr></table>
+{% endblock %}
