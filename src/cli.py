@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dotenv import load_dotenv
 
 from src.artifact.distill import DistillationError, distill_run
+from src.artifact.overlay import apply_overlay_from_file
 from src.artifact.store import load_artifact_by_id, save_artifact
 from src.discovery.loop import run_discovery
 from src.replay.engine import replay_artifact
@@ -114,6 +115,14 @@ def cmd_replay(args):
         print(f"No artifact found: {args.artifact_id}@{args.version} in {artifacts_dir}")
         sys.exit(1)
 
+    if args.overlay:
+        overlay_path = Path(args.overlay)
+        if not overlay_path.exists():
+            print(f"Overlay file not found: {overlay_path}")
+            sys.exit(1)
+        artifact = apply_overlay_from_file(artifact, overlay_path)
+        print(f"Applied overlay: {overlay_path} -> target={artifact.target.tenant} ({artifact.target.base_url}{artifact.target.route_prefix})")
+
     params = _parse_kv(args.param or [])
 
     result = replay_artifact(
@@ -193,6 +202,9 @@ def main():
         help="deterministic fault to inject for this replay run",
     )
     p_replay.add_argument("--artifacts-dir", default="artifacts")
+    p_replay.add_argument(
+        "--overlay", default=None, help="path to a tenant overlay JSON to patch the base artifact with"
+    )
     p_replay.set_defaults(func=cmd_replay)
 
     args = parser.parse_args()

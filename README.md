@@ -14,6 +14,7 @@ with no model in the decision loop. See `REPORT.md` for the design write-up
 - [x] Phase 4 — deterministic replay (locator fallback, 3-way result, output extraction)
 - [x] Phase 5 — agent-facing capability API (stretch goal)
 - [x] Phase 6 — human escalation & handoff (discovery-stuck path)
+- [x] Phase 7 — tenant overlay (multi-tenant reuse)
 - [ ] Phase 2 — discovery agent loop
 - [ ] Phase 3 — artifact schema + distiller
 - [ ] Phase 4 — deterministic replay engine
@@ -529,6 +530,87 @@ window the agent was driving (e.g. navigate to the member's page manually),
 and click **Hand back**. The agent resumes and gets one more shot at the
 goal with your navigation as new context.
 
+## Phase 7 — tenant overlay (multi-tenant reuse)
+
+Directly answers Section 3.7 and the Section 8 stretch goal: reuse an
+artifact across tenants running the same underlying app, rather than
+re-recording per tenant. `src/artifact/overlay.py` is a small, reviewable
+JSON patch mechanism -- `artifacts/overrides/lookup_member_savings_balance@b.json`
+is the actual committed overlay adapting the Tenant A artifact to Tenant B.
+
+What it patches, and why that's *all* it needs to patch: Tenant B's mock
+app runs the exact same shared HTML templates as Tenant A, just configured
+differently (`mock_app/tenants.py`) -- different origin/route prefix,
+different field label ("Acct Holder No." vs "Member ID"), and critically a
+different underlying HTML `name=` attribute on that one input
+(`acct_holder_no` vs `member_id`). The **"Search" button and "View record"
+link steps need zero changes** -- both tenants render identical accessible
+names for them, since they come from the same template. So the overlay is
+three small edits (`target`, `checkpoint`, and one step's locator), not a
+re-recording:
+
+```json
+{
+  "target": {"tenant": "b", "base_url": "http://localhost:4479", "route_prefix": "/operations"},
+  "checkpoint": {"url_pattern": "/operations/member/{member_id}"},
+  "step_overrides": {
+    "s1": {"target": [{"strategy": "css_name_attr", "value": "input[name='acct_holder_no']"}]},
+    "s2": {"target_url": "http://localhost:4479/operations/search"},
+    "s3": {"target_url": "http://localhost:4479/operations/member/1002"}
+  }
+}
+```
+
+Output extraction needs **no override at all** -- both tenants render
+"Member Name" and "Regular Savings" as the literal label text, so the same
+`table_row_label` rules resolve correctly on either tenant's page. This is
+the concrete drift signal a production version of this would watch: if a
+tenant ever *did* rename those labels, extraction would start failing
+loudly (a missing label = `EXTRACTION_FAILED`, not a silent wrong value) --
+a natural trigger for "this tenant needs its own overlay reviewed."
+
+### Tests (no browser needed)
+
+```bash
+python3 -m pytest tests/test_overlay.py -v
+```
+
+Expected: **8 passed**, including the real proof
+(`test_overlaid_artifact_actually_replays_successfully_against_tenant_b`):
+the Tenant A artifact, patched with the overlay above, correctly replays
+against a *simulated* Tenant B page and extracts **Priya Nandakumar /
+5,002.00** -- a different real value than any Tenant A member -- reusing
+Phase 4's fake-page test harness rather than a live browser.
+
+### Run it for real: the same artifact against two different tenants
+
+Terminal 1 (Tenant A, as always):
+```bash
+TENANT=a PORT=4478 python3 mock_app/app.py
+```
+
+Terminal 2 (Tenant B -- yes, at the same time, different port):
+```bash
+TENANT=b PORT=4479 python3 mock_app/app.py
+```
+
+Terminal 3:
+```bash
+# Tenant A, unmodified -- same as Phase 4
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 --param member_id=4521
+
+# The SAME artifact, patched, against Tenant B -- no re-recording
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \
+  --overlay artifacts/overrides/lookup_member_savings_balance@b.json \
+  --param member_id=1002
+```
+
+Expected on the second command: `status: success`, outputs showing
+**Priya Nandakumar / 5,002.00** -- Tenant B's own real member data, reached
+via Tenant B's differently-branded UI, different route prefix, and
+different underlying form field, using an artifact that was never once run
+against Tenant B during discovery.
+
 ## Repository guide (grows each phase)
 
 - `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection
@@ -537,6 +619,7 @@ goal with your navigation as new context.
 - `src/replay/` — model-free replay engine, locator resolver, detectors, checkpoint matching (Phase 4)
 - `src/capability_api/` — agent-facing capability catalog + invoke API, stretch goal (Phase 5)
 - `src/escalation/` — control lease, intervention model, operator console, handoff coordination (Phase 6)
+- `artifacts/overrides/` — tenant overlays, small JSON patches for cross-tenant reuse (Phase 7)
 - `src/replay/` — deterministic, model-free executor (Phase 4)
 - `src/capability_api/` — agent-facing capability catalog/invoke API (Phase 5, stretch goal)
 - `src/escalation/` — control lease + operator console for human handoff (Phase 6)
