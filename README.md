@@ -658,66 +658,6 @@ via Tenant B's differently-branded UI, different route prefix, and
 different underlying form field, using an artifact that was never once run
 against Tenant B during discovery.
 
-## Production-hardening pass
-
-After building the vertical slice, I read a colleague's independent TypeScript
-implementation of the same assignment in detail (source files, not just its
-README/REPORT) and adopted three specific improvements where they were
-genuinely better engineering, not just different:
-
-1. **Event-driven handoff waiting, not polling** (`src/escalation/lease.py`).
-   The original design polled the lease's state on an interval; a very brief
-   `HUMAN_CONTROL` window could fall between two polls and be missed
-   entirely (a real bug this project hit and initially "fixed" by shortening
-   the interval — which narrows the race without removing it). Rewriting to
-   use a `queue.Queue` of every transition, drained in order, removes the
-   bug class by construction: a target state is found even if a later
-   transition already happened before the wait started. **Note**: the first
-   attempt at this fix used a bare `threading.Event`, which turned out to
-   have the *same* underlying bug relocated (an Event only tells you
-   "something changed," not "which states you passed through" — a waiter
-   re-checking *current* state can still skip an intermediate one that came
-   and went between wake-ups). A dedicated test
-   (`test_wait_for_handback_wakes_immediately_not_on_a_poll_tick`) exercises
-   exactly the zero-gap case that would have broken the Event-only version.
-
-2. **A single global exception handler for the operator console**
-   (`src/escalation/console.py`), replacing per-endpoint `try/except`
-   around the same `IllegalLeaseTransition`. Functionally identical today,
-   but any future endpoint that touches the lease is covered automatically
-   rather than needing its own copy-pasted handling.
-
-3. **Overlay/base-artifact mismatch check** (`src/artifact/overlay.py`).
-   Applying an overlay written for one capability to a *different* base
-   artifact would previously succeed silently, producing a structurally
-   valid but semantically nonsensical result (e.g. patching a sub-account
-   artifact's steps with a lookup artifact's overlay). Overlays now
-   optionally declare `capability_id`, checked against the base artifact's
-   own id before anything is patched.
-
-All three are covered by new or updated tests (`tests/test_escalation.py`,
-`tests/test_overlay.py`) — run `python3 -m pytest tests/test_escalation.py
-tests/test_overlay.py -v` to see them (27 passed, no browser needed).
-
-Two further changes came from directly comparing committed `/evidence/`
-against the same colleague's repo:
-
-4. **A genuine, real-browser hard-failure replay is now reachable and
-   committed** (`?chaos=error500` on the member-lookup page, not just the
-   mutating sub-account flow this project never built). Previously this
-   scenario only existed as a synthetic fake-page unit test
-   (`test_hard_failure_app_error`) — real, but not the live evidence the
-   brief's deliverable #3 calls for. `mock_app/chaos.py` and `app.py` now
-   raise the same hard 500 on `GET /member/<id>?chaos=error500`, giving a
-   completely realistic scenario ("the backend errored while retrieving a
-   record") without needing a mutating capability to exist first. See
-   "Regenerate a genuine hard-failure replay" below.
-5. **Redaction now fully replaces sensitive values** (`***REDACTED***`)
-   instead of partially masking them (`2**8`). Partial masking still leaks
-   real information — the value's length and its first/last characters —
-   which for a short numeric balance or a 4-digit code can narrow it down
-   considerably. A fixed placeholder leaks nothing. `src/guardrails/redact.py`.
-
 ### Regenerate a genuine hard-failure replay (real browser, real evidence)
 
 ```bash
