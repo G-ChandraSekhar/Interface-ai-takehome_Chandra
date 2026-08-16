@@ -13,15 +13,9 @@ with no model in the decision loop. See `REPORT.md` for the design write-up
 - [x] Phase 3 — artifact schema + distiller
 - [x] Phase 4 — deterministic replay (locator fallback, 3-way result, output extraction)
 - [x] Phase 5 — agent-facing capability API (stretch goal)
-- [x] Phase 6 — human escalation & handoff (discovery-stuck path)
+- [x] Phase 6 — human escalation & handoff (discovery-stuck and budget-exceeded paths)
 - [x] Phase 7 — tenant overlay (multi-tenant reuse)
-- [ ] Phase 2 — discovery agent loop
-- [ ] Phase 3 — artifact schema + distiller
-- [ ] Phase 4 — deterministic replay engine
-- [ ] Phase 5 — agent-facing capability API (stretch goal)
-- [ ] Phase 6 — escalation & handoff
-- [ ] Phase 7 — tenant overlay demo
-- [ ] Phase 8 — evidence + REPORT.md
+- [x] Phase 8 — evidence + REPORT.md
 
 ## Requirements
 
@@ -104,7 +98,9 @@ Expected: 14 tests pass, covering:
 
 `src/guardrails/redact.py` also has a first pass at field-name-based
 redaction (mask by known sensitive field name, not by trying to detect
-sensitive values) -- this will be wired into logging/evidence in Phase 6-8.
+sensitive values). This was later extended to also cover financial *output*
+values (member balance, member name), not just credential *inputs* -- see
+the safety-fix note in `REPORT.md`.
 
 ## Phase 2 — discovery agent loop
 
@@ -482,11 +478,14 @@ actual page-touching work (attaching/detaching the recorder) happens inside
 `wait_for_handback()`, on the same thread that owns the page, by polling
 the lease and reacting to state changes itself.
 
-**Sequencing note**: the richest demo of this (a human entering a
-supervisor code on an irreversible confirm step) needs the sub-account
-capability, which doesn't exist yet — that's Phase 7. For now, this is
-demonstrated via **discovery's stuck path**, which is exercisable with the
-existing artifact.
+**Scope note**: the richest demo of this (a human entering a supervisor
+code on an irreversible confirm step) needs a mutating sub-account
+capability, which was never recorded -- the one capability built throughout
+this project (`lookup_member_savings_balance`) is entirely safe-tier. The
+mechanism for that scenario is built and unit-tested (see
+`tests/test_escalation.py`'s lease/console tests), but not exercised live
+end-to-end. What *is* demonstrated live below is discovery's stuck and
+budget-exceeded paths, which are exercisable with the existing artifact.
 
 ### Tests
 
@@ -611,18 +610,16 @@ via Tenant B's differently-branded UI, different route prefix, and
 different underlying form field, using an artifact that was never once run
 against Tenant B during discovery.
 
-## Repository guide (grows each phase)
+## Repository guide
 
-- `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection
+- `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection (Phase 0)
+- `src/guardrails/` — allowlist/policy engine + redaction (Phase 1)
 - `src/discovery/` — LLM-driven observe→decide→act loop (Phase 2)
-- `src/artifact/` — capability schema, distiller, extraction, and JSON storage (Phase 3-4)
+- `src/artifact/` — capability schema, distiller, extraction, overlay, and JSON storage (Phase 3, 7)
 - `src/replay/` — model-free replay engine, locator resolver, detectors, checkpoint matching (Phase 4)
 - `src/capability_api/` — agent-facing capability catalog + invoke API, stretch goal (Phase 5)
 - `src/escalation/` — control lease, intervention model, operator console, handoff coordination (Phase 6)
-- `artifacts/overrides/` — tenant overlays, small JSON patches for cross-tenant reuse (Phase 7)
-- `src/replay/` — deterministic, model-free executor (Phase 4)
-- `src/capability_api/` — agent-facing capability catalog/invoke API (Phase 5, stretch goal)
-- `src/escalation/` — control lease + operator console for human handoff (Phase 6)
-- `src/guardrails/` — allowlist/policy engine + redaction (Phase 1)
+- `artifacts/` — saved capability artifacts; `artifacts/overrides/` holds tenant overlays (Phase 3, 7)
 - `config/` — policy configuration
-- `evidence/` — committed discovery/replay run logs (Phase 8)
+- `evidence/` — committed discovery/replay run logs from every phase
+- `REPORT.md` — the design write-up (Phase 8)
