@@ -27,6 +27,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
+from src.artifact.extract import find_label_for_value
 from src.discovery.digest import build_observation
 from src.discovery.evidence import EvidenceWriter
 from src.discovery.llm_openai import OpenAIDiscoveryClient
@@ -219,6 +220,14 @@ def run_discovery(
 
                 if result.is_mark_output:
                     marked_outputs[result.output_name] = result.output_value
+                    # Captured here, not guessed later: at this exact
+                    # moment we know both the value the model saw AND the
+                    # full page text it saw it on, so we can look up which
+                    # label sat next to that value -- this becomes the
+                    # artifact's extraction rule for this output (Phase 4).
+                    extraction_label = find_label_for_value(
+                        observation.page_text, str(result.output_value)
+                    )
                     # The in-memory `marked_outputs` above stays raw -- the
                     # caller of run_discovery (the CLI, ultimately a human or
                     # calling agent) legitimately needs the real value; that
@@ -236,6 +245,7 @@ def run_discovery(
                         name=result.output_name,
                         value=logged_value,
                         page_url=page.url,
+                        extraction_label=extraction_label,
                     )
 
                 if result.is_finish:

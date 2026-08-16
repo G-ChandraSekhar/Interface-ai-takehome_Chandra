@@ -67,6 +67,11 @@ class ArtifactStep(BaseModel):
     action: Literal["navigate", "click", "type", "select", "wait_for", "read_text"]
     target_name: Optional[str] = None
     target: list[LocatorCandidate] = Field(default_factory=list)
+    # For a click that navigates: the URL it led to during discovery. Lets
+    # replay's guardrails check apply to the actual destination, the same
+    # way Phase 2's discovery tools.py checks a click by destination rather
+    # than by the (possibly safe) page it's clicked from.
+    target_url: Optional[str] = None
     # exactly one of these should be set for a 'type' or 'select' step;
     # both are None for 'click'/'navigate'/'wait_for'/'read_text'
     input_ref: Optional[str] = None
@@ -81,6 +86,20 @@ class Checkpoint(BaseModel):
     url_pattern: str  # path with param values replaced by {param_name}
 
 
+class ExtractionRule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # table_row_label: the final page renders "Label\tValue" rows (this is
+    # exactly what Playwright's own inner_text() produces for the legacy
+    # table markup in this target app); replay finds the row whose label
+    # matches and returns that row's value. This is re-resolved against
+    # whatever page replay actually lands on -- so a different invocation
+    # parameter (a different member_id) naturally yields a different real
+    # value, rather than replaying back the value frozen at discovery time.
+    strategy: Literal["table_row_label"]
+    label: str
+
+
 class Artifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -93,6 +112,9 @@ class Artifact(BaseModel):
     output_schema: dict[str, ParamSpec]
     steps: list[ArtifactStep]
     checkpoint: Checkpoint
+    # how to re-derive each declared output from whatever page replay
+    # actually ends on -- required for every key in output_schema
+    output_extraction: dict[str, ExtractionRule]
     created_from_run_id: str
     created_at: datetime
     approved: bool = False

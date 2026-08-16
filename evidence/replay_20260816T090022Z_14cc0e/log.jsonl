@@ -1,0 +1,4 @@
+{"ts": "2026-08-16T09:00:22.524209+00:00", "event": "replay_started", "artifact_id": "lookup_member_savings_balance", "version": 1, "params": {"member_id": "4521"}}
+{"ts": "2026-08-16T09:00:23.206734+00:00", "event": "mock_auth_completed", "url": "http://localhost:4478/desk", "chaos": "session_timeout"}
+{"ts": "2026-08-16T09:00:23.334854+00:00", "event": "recovery_applied", "step_id": "s3", "condition": "session_timeout"}
+{"ts": "2026-08-16T09:00:23.340419+00:00", "event": "replay_finished", "status": "success"}

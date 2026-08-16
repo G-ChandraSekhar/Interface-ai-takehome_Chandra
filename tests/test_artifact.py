@@ -94,6 +94,7 @@ def _synthetic_success_log(tmp_path: Path) -> Path:
             "name": "member_name",
             "value": "Dana Whitfield",
             "page_url": "http://127.0.0.1:4478/desk/member/4521",
+            "extraction_label": "Member Name",
         },
         {
             "ts": "...",
@@ -101,6 +102,7 @@ def _synthetic_success_log(tmp_path: Path) -> Path:
             "name": "savings_balance",
             "value": "2,410.55",
             "page_url": "http://127.0.0.1:4478/desk/member/4521",
+            "extraction_label": "Regular Savings",
         },
         {"ts": "...", "event": "run_finished", "status": "success"},
     ]
@@ -202,6 +204,43 @@ def test_distill_rejects_missing_required_output(tmp_path):
             name="x",
             params={"member_id": "4521"},
             required_outputs=["member_name", "savings_balance", "account_status"],
+        )
+
+
+def test_distill_builds_output_extraction_rules(tmp_path):
+    log_path = _synthetic_success_log(tmp_path)
+    artifact = distill_run(
+        log_path,
+        artifact_id="lookup_member_savings_balance",
+        name="Look up member savings balance",
+        params={"member_id": "4521"},
+        required_outputs=["member_name", "savings_balance"],
+    )
+
+    assert artifact.output_extraction["member_name"].strategy == "table_row_label"
+    assert artifact.output_extraction["member_name"].label == "Member Name"
+    assert artifact.output_extraction["savings_balance"].label == "Regular Savings"
+
+
+def test_distill_rejects_output_with_no_extraction_label(tmp_path):
+    events_path = _synthetic_success_log(tmp_path)
+    # Overwrite the file with one output_marked event missing extraction_label
+    import json as _json
+
+    lines = events_path.read_text().splitlines()
+    events = [_json.loads(line) for line in lines]
+    for e in events:
+        if e.get("event") == "output_marked" and e.get("name") == "member_name":
+            e.pop("extraction_label", None)
+    events_path.write_text("\n".join(_json.dumps(e) for e in events) + "\n")
+
+    with pytest.raises(DistillationError):
+        distill_run(
+            events_path,
+            artifact_id="lookup_member_savings_balance",
+            name="x",
+            params={"member_id": "4521"},
+            required_outputs=["member_name", "savings_balance"],
         )
 
 

@@ -11,6 +11,7 @@ with no model in the decision loop. See `REPORT.md` for the design write-up
 - [x] Phase 1 — guardrails / policy engine
 - [x] Phase 2 — discovery agent loop (live LLM run required — see below)
 - [x] Phase 3 — artifact schema + distiller
+- [x] Phase 4 — deterministic replay (locator fallback, 3-way result, output extraction)
 - [ ] Phase 2 — discovery agent loop
 - [ ] Phase 3 — artifact schema + distiller
 - [ ] Phase 4 — deterministic replay engine
@@ -268,11 +269,131 @@ python3 -m pytest tests/test_loop_stub.py::test_sensitive_outputs_are_redacted_o
 Expected: passes, proving the returned result keeps the real values while
 `result.json` and the `log.jsonl` `output_marked` lines are both masked.
 
+## Phase 4 — deterministic replay
+
+`src/replay/engine.py` executes a saved artifact with **zero LLM
+involvement**: resolve each step's locator ladder against whatever page
+replay is actually on (falling back down the ladder if the top candidate no
+longer resolves, and reporting which tier it needed), check the same
+guardrails policy discovery uses, act, then classify the result into one of
+three genuinely distinct shapes -- `success`, `business_outcome` (a known,
+expected non-success state like "member not found" -- not a crash), or
+`failure` (with a class, the step, what was expected, and what was
+observed).
+
+Two real design gaps got closed building this phase, both worth knowing
+about when defending the design:
+
+1. **Output extraction.** The artifact previously only remembered the
+   *value* seen at discovery time (Dana Whitfield's balance), with no rule
+   for re-finding a *different* value on a different page. Fixed by
+   capturing, at `mark_output` time during discovery, which label sat next
+   to the value (e.g. "Regular Savings"), and storing that as an
+   `output_extraction` rule in the artifact. Replay re-applies that same
+   label against whatever page it actually lands on -- so replaying for
+   member `8832` correctly returns *that* member's real balance, not
+   Dana Whitfield's frozen one.
+2. **Mid-flow business outcomes.** Replaying the exact same click sequence
+   for a nonexistent member naturally lands on the "not found" page instead
+   of the balance page. Replay checks for known business-outcome/hard-failure/
+   recoverable markers *after every action*, not just at the end, so it
+   short-circuits cleanly instead of failing while hunting for a checkpoint
+   that will never appear.
+
+The artifact schema changed again this phase (`output_extraction`,
+`target_url` per step) -- your Phase 3 artifact predates this and needs to
+be regenerated. See below.
+
+### Tests (no browser needed)
+
+```bash
+python3 -m pytest tests/test_replay_engine.py tests/test_extract.py -v
+```
+
+Expected: **15 passed**. `test_replay_engine.py` uses a lightweight fake
+Playwright page (not a real browser -- this sandbox can't reach one) to
+exercise the engine's actual decision logic end to end: success, a
+**different member than discovery used returning that member's own real
+data** (the concrete proof of parameterization), both business outcomes
+(not-found, permission-denied), a hard application-error failure, a bounded
+session-timeout recovery that still reaches success, a locator-ladder
+exhaustion failure, a missing-required-param failure, a checkpoint mismatch
+failure, and an off-allowlist origin denial.
+
+### Regenerate the artifact, then run real replays
+
+```bash
+python3 -m src.cli discover \
+  --goal "Look up member 4521 and read their name and regular savings balance." \
+  --tenant a --param member_id=4521 --output member_name --output savings_balance
+```
+
+Note the `evidence/discovery_<run_id>` path, then:
+
+```bash
+python3 -m src.cli distill \
+  --run-dir evidence/discovery_<run_id> \
+  --artifact-id lookup_member_savings_balance \
+  --name "Look up member savings balance" \
+  --param member_id=4521 --output member_name --output savings_balance
+```
+
+Now the real test -- replay with the **same** member used at discovery:
+
+```bash
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \
+  --param member_id=4521
+```
+
+Then the test that actually matters -- replay with a **different** member
+(no LLM, no re-discovery, just the artifact):
+
+```bash
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \
+  --param member_id=8832
+```
+
+Expected: `status: success`, outputs showing **Marcus Ojo / 918.20** -- a
+real, different, correctly-extracted value, not Dana Whitfield's.
+
+Then the two business outcomes -- neither member was ever seen at
+discovery, proving the artifact generalizes beyond exactly what discovery saw:
+
+```bash
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \
+  --param member_id=9999   # expect: business_outcome / MEMBER_NOT_FOUND
+
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \
+  --param member_id=6600   # expect: business_outcome / PERMISSION_DENIED
+```
+
+And a real injected exceptional state -- the mock app supports deterministic
+fault injection via a `chaos` flag set at login, and `replay` exposes it
+directly:
+
+```bash
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \
+  --param member_id=4521 --chaos session_timeout
+```
+
+Expected: `status: success` still (the session-expired interstitial is a
+*recoverable* condition), but the step telemetry shows `recovery_applied:
+True` on the step that hit it, and `evidence/replay_<run_id>/log.jsonl`
+contains a `recovery_applied` event -- this is the "replay that hits an
+error or exceptional state" the brief's evidence deliverable specifically
+asks for.
+
+Each replay writes its own `evidence/replay_<run_id>/` folder (log,
+result.json, screenshot on any non-success outcome) -- **commit a few of
+these** (success, the different-member success, and both business outcomes
+at minimum) as the required replay evidence.
+
 ## Repository guide (grows each phase)
 
 - `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection
 - `src/discovery/` — LLM-driven observe→decide→act loop (Phase 2)
-- `src/artifact/` — capability schema, distiller, and JSON storage (Phase 3)
+- `src/artifact/` — capability schema, distiller, extraction, and JSON storage (Phase 3-4)
+- `src/replay/` — model-free replay engine, locator resolver, detectors, checkpoint matching (Phase 4)
 - `src/replay/` — deterministic, model-free executor (Phase 4)
 - `src/capability_api/` — agent-facing capability catalog/invoke API (Phase 5, stretch goal)
 - `src/escalation/` — control lease + operator console for human handoff (Phase 6)

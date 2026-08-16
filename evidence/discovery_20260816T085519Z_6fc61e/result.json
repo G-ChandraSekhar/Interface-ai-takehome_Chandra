@@ -1,0 +1,13 @@
+{
+  "status": "success",
+  "message": "Retrieved member name and savings balance for member ID 4521.",
+  "outputs": {
+    "member_name": "D************d",
+    "savings_balance": "2******5"
+  },
+  "step_count": 5,
+  "goal": "Look up member 4521 and read their name and regular savings balance.",
+  "params": {
+    "member_id": "4521"
+  }
+}

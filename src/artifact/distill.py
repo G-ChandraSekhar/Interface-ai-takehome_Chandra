@@ -26,6 +26,7 @@ from src.artifact.schema import (
     Artifact,
     ArtifactStep,
     Checkpoint,
+    ExtractionRule,
     LocatorCandidate,
     ParamSpec,
     TargetSpec,
@@ -124,14 +125,24 @@ def distill_run(
     tenant = _TENANT_BY_ROUTE_PREFIX.get(route_prefix, "unknown")
 
     steps = []
-    for event in events:
-        if event["event"] != "step":
-            continue
-        if not event.get("tool_ok"):
-            continue
-        if event.get("tool_name") not in _ACTIONABLE_TOOLS:
-            continue
-        steps.append(_build_step(event, params, step_id="s" + str(len(steps) + 1)))
+    step_events = [
+        e
+        for e in events
+        if e["event"] == "step" and e.get("tool_ok") and e.get("tool_name") in _ACTIONABLE_TOOLS
+    ]
+    for i, event in enumerate(step_events):
+        step = _build_step(event, params, step_id="s" + str(len(steps) + 1))
+        if step.action == "click":
+            # loop.py logs page_url AFTER executing the action (see
+            # src/discovery/loop.py's evidence.log_step call, which runs
+            # after execute_tool) -- so a click step's OWN event.page_url
+            # already IS its destination. No forward-scan needed; using a
+            # later event's page_url here was a real bug (it attributed the
+            # NEXT step's destination to THIS step, which happened to be
+            # harmless only because both steps' paths carried the same
+            # policy risk tier in this particular artifact).
+            step.target_url = event.get("page_url")
+        steps.append(step)
 
     if not steps:
         raise DistillationError("No actionable steps found in log -- nothing to distill.")
@@ -146,6 +157,23 @@ def distill_run(
 
     output_schema = {name: ParamSpec(type="str", required=True) for name in required_outputs}
     input_params = {name: ParamSpec(type="str", required=True) for name in params}
+
+    output_extraction: dict = {}
+    no_label_for = []
+    for output_name in required_outputs:
+        matching_events = [e for e in output_events if e["name"] == output_name]
+        label = matching_events[-1].get("extraction_label") if matching_events else None
+        if not label:
+            no_label_for.append(output_name)
+            continue
+        output_extraction[output_name] = ExtractionRule(strategy="table_row_label", label=label)
+
+    if no_label_for:
+        raise DistillationError(
+            "Could not determine a reliable extraction label for output(s) "
+            + str(no_label_for)
+            + " -- refusing to distill an artifact that can't re-extract its own outputs."
+        )
 
     last_output_event = output_events[-1]
     checkpoint_url = last_output_event.get("page_url", "")
@@ -167,6 +195,7 @@ def distill_run(
         output_schema=output_schema,
         steps=steps,
         checkpoint=checkpoint,
+        output_extraction=output_extraction,
         created_from_run_id=created_from_run_id,
         created_at=run_started["ts"],
         approved=False,

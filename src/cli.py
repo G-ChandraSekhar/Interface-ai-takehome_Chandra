@@ -9,7 +9,8 @@ Command-line entrypoint.
         --name "Look up member savings balance" \\
         --param member_id=4521 --output member_name --output savings_balance
 
-Replay subcommand arrives in Phase 4.
+    python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \\
+        --param member_id=8832
 """
 
 from __future__ import annotations
@@ -23,8 +24,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from dotenv import load_dotenv
 
 from src.artifact.distill import DistillationError, distill_run
-from src.artifact.store import save_artifact
+from src.artifact.store import load_artifact_by_id, save_artifact
 from src.discovery.loop import run_discovery
+from src.replay.engine import replay_artifact
+from src.replay.result import ReplayStatus
 
 TENANT_BASE_URLS = {
     "a": ("http://localhost:4478", "/desk"),
@@ -101,6 +104,43 @@ def cmd_distill(args):
     print(f"  checkpoint: {artifact.checkpoint.url_pattern}")
 
 
+def cmd_replay(args):
+    artifacts_dir = Path(args.artifacts_dir)
+    try:
+        artifact = load_artifact_by_id(args.artifact_id, args.version, artifacts_dir)
+    except FileNotFoundError:
+        print(f"No artifact found: {args.artifact_id}@{args.version} in {artifacts_dir}")
+        sys.exit(1)
+
+    params = _parse_kv(args.param or [])
+
+    result = replay_artifact(
+        artifact,
+        params,
+        mutate_confirmed=args.mutate,
+        irreversible_confirmed=args.confirm_irreversible,
+        mock_auth=not args.no_mock_auth,
+        headless=args.headless,
+        chaos=args.chaos,
+    )
+
+    print(f"\nStatus: {result.status.value}")
+    if result.status == ReplayStatus.SUCCESS:
+        print(f"Outputs: {result.outputs}")
+    elif result.status == ReplayStatus.BUSINESS_OUTCOME:
+        print(f"Outcome code: {result.outcome_code}")
+        print(f"Message: {result.outcome_message}")
+    else:
+        print(f"Failure class: {result.failure.step_class.value}")
+        print(f"Step: {result.failure.step_id}")
+        print(f"Expected: {result.failure.expected}")
+        print(f"Observed: {result.failure.observed}")
+    print(f"Step telemetry: {[(t.step_id, t.resolved_strategy, t.recovery_applied) for t in result.step_telemetry]}")
+    print(f"Evidence written to: {result.run_dir}")
+
+    sys.exit(0 if result.status == ReplayStatus.SUCCESS else 1)
+
+
 def main():
     load_dotenv()
     parser = argparse.ArgumentParser(prog="cli")
@@ -129,6 +169,25 @@ def main():
     p_distill.add_argument("--output", action="append", help="required output name, repeatable")
     p_distill.add_argument("--artifacts-dir", default="artifacts")
     p_distill.set_defaults(func=cmd_distill)
+
+    p_replay = sub.add_parser("replay", help="Deterministically replay a saved artifact -- no LLM")
+    p_replay.add_argument("--artifact-id", required=True)
+    p_replay.add_argument("--version", type=int, default=1)
+    p_replay.add_argument("--param", action="append", help="key=value, repeatable")
+    p_replay.add_argument("--mutate", action="store_true", help="allow mutating-tier actions")
+    p_replay.add_argument(
+        "--confirm-irreversible", action="store_true", help="allow the irreversible confirm step"
+    )
+    p_replay.add_argument("--no-mock-auth", action="store_true")
+    p_replay.add_argument("--headless", action="store_true")
+    p_replay.add_argument(
+        "--chaos",
+        default="none",
+        choices=["none", "session_timeout", "error500", "supervisor", "slow"],
+        help="deterministic fault to inject for this replay run",
+    )
+    p_replay.add_argument("--artifacts-dir", default="artifacts")
+    p_replay.set_defaults(func=cmd_replay)
 
     args = parser.parse_args()
     args.func(args)
