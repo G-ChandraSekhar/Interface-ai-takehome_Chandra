@@ -13,6 +13,7 @@ with no model in the decision loop. See `REPORT.md` for the design write-up
 - [x] Phase 3 — artifact schema + distiller
 - [x] Phase 4 — deterministic replay (locator fallback, 3-way result, output extraction)
 - [x] Phase 5 — agent-facing capability API (stretch goal)
+- [x] Phase 6 — human escalation & handoff (discovery-stuck path)
 - [ ] Phase 2 — discovery agent loop
 - [ ] Phase 3 — artifact schema + distiller
 - [ ] Phase 4 — deterministic replay engine
@@ -447,6 +448,87 @@ data Phase 4's replay CLI produced, now reachable purely through the
 capability catalog. Try `curl http://127.0.0.1:8000/capabilities | python3 -m json.tool`
 directly too, to see the raw tool schema an agent would actually receive.
 
+## Phase 6 — human escalation & handoff
+
+`src/escalation/` implements Section 3.6's requirement end to end: detect a
+stuck/blocked run, route an intervention with context to a human operator,
+let them take control of the **same live session** (not a fresh one),
+record what they did, and resume.
+
+Four pieces, deliberately small and each independently testable:
+
+- **`lease.py`** — a strict state machine (`AGENT_RUNNING` → `PAUSED` →
+  `HUMAN_CONTROL` → `RESUMING` → `AGENT_RUNNING`) that decides who may act
+  on the page right now. Illegal transitions raise.
+- **`intervention.py`** — the context record routed to the operator: which
+  run, which goal/capability, current step, why it stopped, the page URL, a
+  screenshot.
+- **`console.py`** — a minimal local FastAPI page (loopback-only, no auth
+  -- documented scope, not an oversight) with **Take control** / **Hand
+  back** buttons. Deliberately a *signaling plane, not a remote desktop*:
+  the human drives the real, visible browser window directly with their
+  own mouse and keyboard. The console never proxies a single click.
+- **`controller.py`** + **`human_recorder.py`** — coordinates the pause/
+  resume, and records what the human did (navigation-level, via a
+  Playwright event listener attached only while they hold control).
+
+**A real concurrency detail worth knowing if asked about it**: Playwright's
+sync API is not thread-safe, but the console runs in a background thread
+(uvicorn) while the paused run blocks on the main thread that owns the
+page. So the console's HTTP handlers only ever flip the lease's state
+(protected by a lock) — they never touch Playwright directly. All the
+actual page-touching work (attaching/detaching the recorder) happens inside
+`wait_for_handback()`, on the same thread that owns the page, by polling
+the lease and reacting to state changes itself.
+
+**Sequencing note**: the richest demo of this (a human entering a
+supervisor code on an irreversible confirm step) needs the sub-account
+capability, which doesn't exist yet — that's Phase 7. For now, this is
+demonstrated via **discovery's stuck path**, which is exercisable with the
+existing artifact.
+
+### Tests
+
+```bash
+python3 -m pytest tests/test_escalation.py -v
+```
+
+Expected: **12 passed**, with no browser needed — including a real
+multi-threaded test (`test_wait_for_handback_blocks_until_operator_acts...`)
+that starts an actual background thread standing in for the operator,
+proves the main thread genuinely blocks until it acts, and confirms the
+navigation recorder captured what it did.
+
+One more test needs a real browser — `test_stuck_with_handoff_escalates_and_a_human_can_resolve_it`
+in `tests/test_loop_stub.py`. It spins up the *real* console server, uses a
+background thread making *real* HTTP calls to it (not mocked) to act as the
+operator, while `run_discovery` genuinely blocks on the main thread:
+
+```bash
+python3 -m pytest tests/test_loop_stub.py::test_stuck_with_handoff_escalates_and_a_human_can_resolve_it -v
+```
+
+### See it happen live (headed browser, real console, you as the operator)
+
+Give the model an ambiguous/impossible goal so it genuinely gets stuck:
+
+```bash
+python3 -m src.cli discover \
+  --goal "Look up the transaction history for member 4521." \
+  --tenant a --param member_id=4521 --output transaction_history \
+  --handoff
+```
+
+(There's no transaction-history page in this mock app, so the model should
+reach a dead end and call this out in plain text rather than a tool call.)
+
+When it gets stuck, the terminal prints a console URL
+(`http://127.0.0.1:4590` by default) and pauses. Open that URL in a
+browser, click **Take control**, then interact with the *actual* Chromium
+window the agent was driving (e.g. navigate to the member's page manually),
+and click **Hand back**. The agent resumes and gets one more shot at the
+goal with your navigation as new context.
+
 ## Repository guide (grows each phase)
 
 - `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection
@@ -454,6 +536,7 @@ directly too, to see the raw tool schema an agent would actually receive.
 - `src/artifact/` — capability schema, distiller, extraction, and JSON storage (Phase 3-4)
 - `src/replay/` — model-free replay engine, locator resolver, detectors, checkpoint matching (Phase 4)
 - `src/capability_api/` — agent-facing capability catalog + invoke API, stretch goal (Phase 5)
+- `src/escalation/` — control lease, intervention model, operator console, handoff coordination (Phase 6)
 - `src/replay/` — deterministic, model-free executor (Phase 4)
 - `src/capability_api/` — agent-facing capability catalog/invoke API (Phase 5, stretch goal)
 - `src/escalation/` — control lease + operator console for human handoff (Phase 6)

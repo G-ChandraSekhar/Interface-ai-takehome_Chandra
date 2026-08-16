@@ -1,0 +1,12 @@
+{
+  "status": "failure",
+  "message": "Model called finish but these outputs were never marked: ['savings_balance']",
+  "outputs": {
+    "member_name": "D************d"
+  },
+  "step_count": 1,
+  "goal": "Look up member 4521 and read their name and regular savings balance.",
+  "params": {
+    "member_id": "4521"
+  }
+}

@@ -60,6 +60,8 @@ def cmd_discover(args):
         mock_auth=not args.no_mock_auth,
         headless=args.headless,
         model=args.model,
+        handoff=args.handoff,
+        console_port=args.console_port,
     )
 
     print(f"\nStatus: {result.status}")
@@ -158,6 +160,10 @@ def main():
     p_discover.add_argument("--no-mock-auth", action="store_true")
     p_discover.add_argument("--headless", action="store_true")
     p_discover.add_argument("--model", default=None)
+    p_discover.add_argument(
+        "--handoff", action="store_true", help="escalate to a human operator console if the agent gets stuck"
+    )
+    p_discover.add_argument("--console-port", type=int, default=4590)
     p_discover.set_defaults(func=cmd_discover)
 
     p_distill = sub.add_parser("distill", help="Distill a discovery run's log into a capability artifact")

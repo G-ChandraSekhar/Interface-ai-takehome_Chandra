@@ -12,9 +12,9 @@ The loop ends when:
   - the model calls `finish` after marking every required output -> SUCCESS
   - the model calls `finish` early (not all outputs marked) -> FAILURE (declared done prematurely)
   - the model responds with plain text instead of a tool call, twice in a
-    row -> STUCK (this is where Phase 6 escalation will eventually hook in;
-    for Phase 2 we just record it as a stopping condition)
-  - the step/duration budget from the policy engine is exceeded -> STUCK
+    row -> escalates to a human if handoff=True, else STUCK
+  - the step/duration budget from the policy engine is exceeded -> escalates
+    to a human if handoff=True, else STUCK
 """
 
 from __future__ import annotations
@@ -33,6 +33,7 @@ from src.discovery.evidence import EvidenceWriter
 from src.discovery.llm_openai import OpenAIDiscoveryClient
 from src.discovery.prompts import build_system_prompt
 from src.discovery.tools import TOOL_SCHEMAS, execute_tool
+from src.escalation.controller import HandoffController
 from src.guardrails.engine import PolicyEngine
 from src.guardrails.redact import redact_value
 from src.guardrails.result import PolicyDecision
@@ -71,13 +72,10 @@ def run_discovery(
     evidence_root: Path | None = None,
     run_id: str | None = None,
     llm_client=None,
+    handoff: bool = False,
+    console_port: int = 4590,
 ) -> DiscoveryResult:
     policy = PolicyEngine()
-    # llm_client injection point exists so tests can exercise the full loop
-    # control flow (marking outputs, finish handling, stuck detection,
-    # budget limits) with a scripted stub, without needing a live
-    # OPENAI_API_KEY or network access. Production callers (cli.py) leave
-    # this as None and get the real OpenAI-backed client.
     llm = llm_client or OpenAIDiscoveryClient(model=model)
 
     run_id = run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}_{uuid.uuid4().hex[:6]}"
@@ -110,10 +108,49 @@ def run_discovery(
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
         page = browser.new_page()
+        handoff_controller = HandoffController(evidence, page=page) if handoff else None
 
         if mock_auth:
             _mock_login(page, base_url, route_prefix)
             evidence.log_event("mock_auth_completed", url=page.url)
+
+        def escalate(reason: str) -> bool:
+            """Pauses for a human operator if handoff is enabled and returns
+            True once they've resumed it; returns False (caller should treat
+            this as a plain stopping condition) if handoff is disabled.
+            Shared by both stopping conditions that can benefit from a human
+            -- getting stuck with nothing to click, and exhausting the step
+            budget -- so the escalation mechanics live in exactly one place.
+            """
+            if handoff_controller is None:
+                return False
+            console_url = handoff_controller.start_console(port=console_port)
+            screenshot_rel = evidence.screenshot(page, "stuck_awaiting_operator")
+            handoff_controller.request_intervention(
+                run_id=run_id,
+                run_kind="discovery",
+                goal_or_capability=goal,
+                step_id=None,
+                reason=reason,
+                page_url=page.url,
+                screenshot_path=screenshot_rel,
+            )
+            print("\n[HANDOFF] Discovery needs a human: " + reason)
+            print("[HANDOFF] Open " + console_url + " and click 'Take control'.")
+            print("[HANDOFF] Operate the visible browser window directly, then click 'Hand back'.\n")
+            handoff_controller.wait_for_handback(poll_interval=0.1)
+            print("[HANDOFF] Control returned to the agent. Resuming discovery.\n")
+            messages.append(
+                {
+                    "role": "user",
+                    "content": (
+                        "A human operator just took over the browser to help, then handed "
+                        "control back to you. Re-examine the current page and continue "
+                        "toward the goal from here."
+                    ),
+                }
+            )
+            return True
 
         system_prompt = build_system_prompt(goal, params, required_outputs)
         messages: list[dict] = [{"role": "system", "content": system_prompt}]
@@ -121,9 +158,13 @@ def run_discovery(
         while True:
             budget = policy.check_budget(step_count, time.time() - start_time)
             if budget.decision == PolicyDecision.DENY:
+                evidence.log_event("budget_exceeded", reason=budget.reason)
+                if escalate(budget.reason):
+                    step_count = 0
+                    start_time = time.time()
+                    continue
                 status = "stuck"
                 message = budget.reason
-                evidence.log_event("budget_exceeded", reason=budget.reason)
                 break
 
             observation = build_observation(page)
@@ -149,11 +190,14 @@ def run_discovery(
                     page_url=page.url,
                 )
                 if consecutive_text_responses >= 2:
+                    reason = response.content or "Model stopped calling tools without finishing."
+                    if escalate(reason):
+                        consecutive_text_responses = 0
+                        continue
                     status = "stuck"
-                    message = response.content or "Model stopped calling tools without finishing."
+                    message = reason
                     evidence.screenshot(page, "stuck")
                     break
-                # nudge and let it try again next loop iteration
                 messages.append(
                     {
                         "role": "user",
@@ -207,9 +251,6 @@ def run_discovery(
                     target_candidates=target_candidates,
                 )
 
-                # Every tool_call the model made in this turn needs exactly
-                # one matching tool response appended, in order, before the
-                # next API call -- OpenAI rejects the request otherwise.
                 messages.append(
                     {
                         "role": "tool",
@@ -220,21 +261,9 @@ def run_discovery(
 
                 if result.is_mark_output:
                     marked_outputs[result.output_name] = result.output_value
-                    # Captured here, not guessed later: at this exact
-                    # moment we know both the value the model saw AND the
-                    # full page text it saw it on, so we can look up which
-                    # label sat next to that value -- this becomes the
-                    # artifact's extraction rule for this output (Phase 4).
                     extraction_label = find_label_for_value(
                         observation.page_text, str(result.output_value)
                     )
-                    # The in-memory `marked_outputs` above stays raw -- the
-                    # caller of run_discovery (the CLI, ultimately a human or
-                    # calling agent) legitimately needs the real value; that
-                    # IS the capability. What gets written to disk is
-                    # different: evidence and result.json are committed
-                    # artifacts, so any output field named in
-                    # sensitive_output_fields is masked before persistence.
                     logged_value = (
                         redact_value(str(result.output_value))
                         if result.output_name in policy.sensitive_output_fields
@@ -267,15 +296,13 @@ def run_discovery(
             step_count += 1
 
         evidence.screenshot(page, "final_state")
+        if handoff_controller is not None:
+            handoff_controller.stop_console()
         browser.close()
 
     final_result = {
         "status": status,
         "message": message,
-        # Persisted result.json is a committed artifact -- redact sensitive
-        # output fields here too, same rule as the per-step log above. The
-        # DiscoveryResult returned from this function (below) still carries
-        # the raw values for the immediate caller.
         "outputs": {
             k: (redact_value(str(v)) if k in policy.sensitive_output_fields else v)
             for k, v in marked_outputs.items()
