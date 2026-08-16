@@ -1,0 +1,13 @@
+{
+  "status": "success",
+  "message": "Found member name 'Dana Whitfield' and savings balance '2,410.55' for member ID 4521.",
+  "outputs": {
+    "member_name": "Dana Whitfield",
+    "savings_balance": "2,410.55"
+  },
+  "step_count": 5,
+  "goal": "Look up member 4521 and read their name and regular savings balance.",
+  "params": {
+    "member_id": "4521"
+  }
+}

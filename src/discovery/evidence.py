@@ -52,11 +52,15 @@ class EvidenceWriter:
         tool_result_message: str | None,
         tool_ok: bool | None,
         page_url: str,
+        target_name: str | None = None,
+        target_candidates: list[dict] | None = None,
     ):
-        # redact any sensitive value embedded in the args (e.g. a typed
-        # password) by field-name heuristic: the 'text' arg for a 'type'
-        # call whose element name matched a sensitive field is redacted by
-        # the caller before this is invoked -- see loop.py.
+        # target_name/target_candidates carry the acted-on element's
+        # accessible name and its ranked locator ladder (from digest.py),
+        # captured at the moment of the action -- this is exactly what the
+        # Phase 3 distiller needs to freeze a real, robust locator ladder
+        # into the artifact, rather than guessing one after the fact from a
+        # bare ref like "e3" which means nothing outside that single run.
         self.log_event(
             "step",
             step_number=step_number,
@@ -67,6 +71,8 @@ class EvidenceWriter:
             tool_args=tool_args,
             tool_result=tool_result_message,
             tool_ok=tool_ok,
+            target_name=target_name,
+            target_candidates=target_candidates,
         )
 
     def screenshot(self, page, label: str) -> str:

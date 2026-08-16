@@ -10,6 +10,7 @@ with no model in the decision loop. See `REPORT.md` for the design write-up
 - [x] Phase 0 — mock target app (two tenants, chaos injection)
 - [x] Phase 1 — guardrails / policy engine
 - [x] Phase 2 — discovery agent loop (live LLM run required — see below)
+- [x] Phase 3 — artifact schema + distiller
 - [ ] Phase 2 — discovery agent loop
 - [ ] Phase 3 — artifact schema + distiller
 - [ ] Phase 4 — deterministic replay engine
@@ -164,11 +165,78 @@ and the evidence directory path (`evidence/discovery_<run_id>/`), which
 contains `log.jsonl` (structured step-by-step trace), `result.json`, and
 `screenshots/`.
 
+## Phase 3 — artifact schema + distiller
+
+The artifact schema (`src/artifact/schema.py`) is a strict, versioned
+capability contract (Pydantic, `extra="forbid"`): target scope, typed input
+params, typed outputs, an ordered list of steps each carrying a *ranked
+locator ladder* (not a single selector), and a URL-pattern checkpoint. The
+distiller (`src/artifact/distill.py`) reads a discovery run's `log.jsonl`
+and produces one of these — nothing from the raw transcript survives except
+the ordered steps, their locator ladders, and which values were
+parameters vs fixed.
+
+This phase also extended the discovery log itself: each `click`/`type`/
+`select` step now records the acted-on element's accessible name and its
+full locator candidate ladder (not just the bare ref like `"e3"`, which
+means nothing outside that one run). Without this, the distiller would have
+nothing real to freeze into the artifact.
+
+### Tests (no browser or API key needed)
+
+```bash
+python3 -m pytest tests/test_artifact.py -v
+```
+
+Expected: **8 passed**. Covers: distilling a valid artifact from a
+synthetic-but-realistic log, correctly parameterizing the typed member ID
+(`input_ref="member_id"`, not frozen as a literal), preserving the locator
+ladder per step, building a parameterized checkpoint URL
+(`/desk/member/{member_id}`), refusing to distill a run that didn't
+succeed, refusing to distill when a required output was never marked, the
+strict schema rejecting unknown fields, and a full save/load round-trip
+through storage.
+
+### Distilling your real discovery run
+
+Because the log format changed this phase (added `target_name` /
+`target_candidates`), your existing evidence run from Phase 2 predates this
+and can't be distilled as-is. Run discovery once more to get a compatible
+log, then distill it:
+
+```bash
+python3 -m src.cli discover \
+  --goal "Look up member 4521 and read their name and regular savings balance." \
+  --tenant a \
+  --param member_id=4521 \
+  --output member_name \
+  --output savings_balance
+```
+
+Note the `Evidence written to: evidence/discovery_<run_id>` path it prints,
+then:
+
+```bash
+python3 -m src.cli distill \
+  --run-dir evidence/discovery_<run_id> \
+  --artifact-id lookup_member_savings_balance \
+  --name "Look up member savings balance" \
+  --param member_id=4521 \
+  --output member_name \
+  --output savings_balance
+```
+
+This writes `artifacts/lookup_member_savings_balance@1.json`. Open it and
+read it — it should be understandable as a capability contract without
+needing to see the discovery run that produced it. Every `type`/`click`
+step should show a locator ladder with 1-2+ real candidates (role/name,
+CSS, text), not just a `"positional"` fallback.
+
 ## Repository guide (grows each phase)
 
 - `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection
 - `src/discovery/` — LLM-driven observe→decide→act loop (Phase 2)
-- `src/artifact/` — capability schema + distiller (Phase 3)
+- `src/artifact/` — capability schema, distiller, and JSON storage (Phase 3)
 - `src/replay/` — deterministic, model-free executor (Phase 4)
 - `src/capability_api/` — agent-facing capability catalog/invoke API (Phase 5, stretch goal)
 - `src/escalation/` — control lease + operator console for human handoff (Phase 6)

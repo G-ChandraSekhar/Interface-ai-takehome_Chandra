@@ -4,6 +4,11 @@ Command-line entrypoint.
     python3 -m src.cli discover --goal "..." --tenant a --param member_id=4521 \\
         --output member_name --output savings_balance
 
+    python3 -m src.cli distill --run-dir evidence/discovery_<run_id> \\
+        --artifact-id lookup_member_savings_balance \\
+        --name "Look up member savings balance" \\
+        --param member_id=4521 --output member_name --output savings_balance
+
 Replay subcommand arrives in Phase 4.
 """
 
@@ -17,6 +22,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from dotenv import load_dotenv
 
+from src.artifact.distill import DistillationError, distill_run
+from src.artifact.store import save_artifact
 from src.discovery.loop import run_discovery
 
 TENANT_BASE_URLS = {
@@ -61,6 +68,39 @@ def cmd_discover(args):
     sys.exit(0 if result.status == "success" else 1)
 
 
+def cmd_distill(args):
+    run_dir = Path(args.run_dir)
+    log_path = run_dir / "log.jsonl"
+    if not log_path.exists():
+        print(f"No log.jsonl found at {log_path}")
+        sys.exit(1)
+
+    params = _parse_kv(args.param or [])
+
+    try:
+        artifact = distill_run(
+            log_path,
+            artifact_id=args.artifact_id,
+            name=args.name,
+            params=params,
+            required_outputs=args.output or [],
+            version=args.version,
+        )
+    except DistillationError as e:
+        print(f"Distillation failed: {e}")
+        sys.exit(1)
+
+    artifacts_dir = Path(args.artifacts_dir)
+    saved_path = save_artifact(artifact, artifacts_dir)
+
+    print(f"\nDistilled artifact: {saved_path}")
+    print(f"  target: {artifact.target.tenant} ({artifact.target.base_url}{artifact.target.route_prefix})")
+    print(f"  input_params: {list(artifact.input_params.keys())}")
+    print(f"  output_schema: {list(artifact.output_schema.keys())}")
+    print(f"  steps: {len(artifact.steps)}")
+    print(f"  checkpoint: {artifact.checkpoint.url_pattern}")
+
+
 def main():
     load_dotenv()
     parser = argparse.ArgumentParser(prog="cli")
@@ -79,6 +119,16 @@ def main():
     p_discover.add_argument("--headless", action="store_true")
     p_discover.add_argument("--model", default=None)
     p_discover.set_defaults(func=cmd_discover)
+
+    p_distill = sub.add_parser("distill", help="Distill a discovery run's log into a capability artifact")
+    p_distill.add_argument("--run-dir", required=True, help="e.g. evidence/discovery_<run_id>")
+    p_distill.add_argument("--artifact-id", required=True)
+    p_distill.add_argument("--name", required=True)
+    p_distill.add_argument("--version", type=int, default=1)
+    p_distill.add_argument("--param", action="append", help="key=value used in the run, repeatable")
+    p_distill.add_argument("--output", action="append", help="required output name, repeatable")
+    p_distill.add_argument("--artifacts-dir", default="artifacts")
+    p_distill.set_defaults(func=cmd_distill)
 
     args = parser.parse_args()
     args.func(args)

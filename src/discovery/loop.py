@@ -182,6 +182,16 @@ def run_discovery(
                     if el and el.name.lower() in policy.sensitive_field_names:
                         logged_args["text"] = "***REDACTED***"
 
+                target_name = None
+                target_candidates = None
+                if tool_call.name in ("click", "type", "select"):
+                    el = observation.elements.get(tool_call.arguments.get("ref"))
+                    if el:
+                        target_name = el.name
+                        target_candidates = [
+                            {"strategy": c.strategy, "value": c.value} for c in el.candidates
+                        ]
+
                 evidence.log_step(
                     step_number=step_count,
                     observation_text=observation.text,
@@ -191,6 +201,8 @@ def run_discovery(
                     tool_result_message=result.message,
                     tool_ok=result.ok,
                     page_url=page.url,
+                    target_name=target_name,
+                    target_candidates=target_candidates,
                 )
 
                 # Every tool_call the model made in this turn needs exactly
@@ -207,7 +219,10 @@ def run_discovery(
                 if result.is_mark_output:
                     marked_outputs[result.output_name] = result.output_value
                     evidence.log_event(
-                        "output_marked", name=result.output_name, value=result.output_value
+                        "output_marked",
+                        name=result.output_name,
+                        value=result.output_value,
+                        page_url=page.url,
                     )
 
                 if result.is_finish:
