@@ -41,8 +41,15 @@ class HumanActionRecorder:
             except Exception:
                 pass
 
-        self._handler = on_navigation
-        self.page.on("framenavigated", on_navigation)
+        # Attaching is best-effort instrumentation: a surface that doesn't
+        # expose Playwright's event API must not be able to break a handoff.
+        # Losing the action recording is a much smaller problem than an
+        # operator being unable to take control of a live session.
+        try:
+            self.page.on("framenavigated", on_navigation)
+            self._handler = on_navigation
+        except (AttributeError, NotImplementedError):
+            self._handler = None
 
     def detach(self):
         if self._handler is not None:

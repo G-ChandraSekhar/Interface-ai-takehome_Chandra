@@ -274,6 +274,28 @@ def run_discovery(
                     }
                 )
 
+                # An irreversible block can only be cleared by a human taking
+                # control -- the model cannot resolve it by trying something
+                # different. Route it to the operator console immediately
+                # rather than letting the model retry and eventually give up
+                # as "stuck" (which is exactly what happened before this was
+                # wired up: a live run reached the confirm step, was
+                # correctly blocked, and then wasted turns before quitting).
+                if result.needs_human and handoff_controller is not None:
+                    escalate(result.human_reason or "Irreversible action requires a human.")
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "A human operator took control and handled the "
+                                "irreversible step themselves, then handed control back. "
+                                "Do NOT attempt that step again -- re-performing an "
+                                "irreversible action would double-execute it. Re-examine "
+                                "the current page and continue from here."
+                            ),
+                        }
+                    )
+
                 if result.is_mark_output:
                     marked_outputs[result.output_name] = result.output_value
                     # Captured here, not guessed later: at this exact

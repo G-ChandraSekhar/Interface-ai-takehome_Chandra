@@ -68,14 +68,23 @@ def test_irreversible_route_requires_confirmation_even_if_artifact_approved(engi
     assert result.risk_tier == RiskTier.IRREVERSIBLE
 
 
-def test_irreversible_route_allowed_only_with_live_confirmation(engine):
-    result = engine.check_action(
-        "click",
-        "http://localhost:4478/desk/member/4521/subaccount/confirm",
-        artifact_approved=True,
-        confirmed=True,
-    )
-    assert result.decision == PolicyDecision.ALLOW
+def test_irreversible_route_can_never_be_authorized_by_a_flag(engine):
+    """The safety property is structural, not flag-dependent: no combination
+    of artifact approval and confirmation flags lets an irreversible action
+    run unattended. It always routes to a human taking control of the live
+    session (replay handles that escalation -- see src/replay/engine.py)."""
+    for artifact_approved in (False, True):
+        for confirmed in (False, True):
+            result = engine.check_action(
+                "click",
+                "http://localhost:4478/desk/member/4521/subaccount/confirm",
+                artifact_approved=artifact_approved,
+                confirmed=confirmed,
+            )
+            assert result.decision == PolicyDecision.REQUIRE_CONFIRMATION, (
+                "artifact_approved=" + str(artifact_approved) + " confirmed=" + str(confirmed)
+            )
+            assert result.risk_tier == RiskTier.IRREVERSIBLE
 
 
 def test_tenant_b_origin_also_allowed(engine):

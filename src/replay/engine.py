@@ -28,9 +28,10 @@ from playwright.sync_api import sync_playwright
 from src.artifact.extract import extract_by_label
 from src.artifact.schema import Artifact
 from src.discovery.evidence import EvidenceWriter
+from src.escalation.controller import HandoffController
 from src.guardrails.engine import PolicyEngine
 from src.guardrails.redact import redact_value
-from src.guardrails.result import PolicyDecision
+from src.guardrails.result import PolicyDecision, RiskTier
 from src.replay.checkpoint import checkpoint_met
 from src.replay.detectors import detect_business_outcome, detect_hard_failure, detect_recoverable
 from src.replay.locator_resolver import ResolutionFailure, resolve_locator
@@ -94,6 +95,8 @@ def replay_artifact(
     params: dict,
     *,
     mutate_confirmed: bool = False,
+    # Retained for API compatibility but no longer grants anything: the
+    # IRREVERSIBLE tier is not flag-gated. See PolicyEngine.check_action().
     irreversible_confirmed: bool = False,
     mock_auth: bool = True,
     headless: bool = True,
@@ -101,6 +104,8 @@ def replay_artifact(
     evidence_root=None,
     run_id=None,
     page=None,
+    handoff: bool = False,
+    console_port: int = 4590,
 ) -> ReplayResult:
     policy = PolicyEngine()
 
@@ -153,6 +158,9 @@ def replay_artifact(
     owns_browser = page is None
     browser = None
     playwright_cm = None
+    # Defined before the try so the finally block can always reference it,
+    # even if browser setup raises before it would otherwise be assigned.
+    handoff_controller = None
 
     try:
         if owns_browser:
@@ -166,6 +174,8 @@ def replay_artifact(
 
         step_telemetry = []
         recovery_attempts = {}
+        if handoff:
+            handoff_controller = HandoffController(evidence, page=page)
 
         for step in artifact.steps:
             resolution = resolve_locator(page, step.target)
@@ -303,6 +313,59 @@ def replay_artifact(
                 artifact_approved=artifact.approved,
             )
             if policy_check.decision != PolicyDecision.ALLOW:
+                # An IRREVERSIBLE step is not a failure -- it's precisely the
+                # case the human-in-the-loop path exists for. If a handoff
+                # controller is available, pause and let a human take control
+                # of the live session to perform (or refuse) the action
+                # themselves, then resume. Without a handoff controller
+                # there's no human to route to, so it correctly fails closed.
+                if (
+                    policy_check.risk_tier == RiskTier.IRREVERSIBLE
+                    and handoff_controller is not None
+                ):
+                    console_url = handoff_controller.start_console(port=console_port)
+                    screenshot_rel = evidence.screenshot(page, "irreversible_awaiting_operator")
+                    handoff_controller.request_intervention(
+                        run_id=run_id,
+                        run_kind="replay",
+                        goal_or_capability=artifact.artifact_id + "@" + str(artifact.version),
+                        step_id=step.step_id,
+                        reason=(
+                            "Irreversible step '" + step.description + "' cannot run "
+                            "unattended. A human must take control of the live session "
+                            "to perform or refuse this action."
+                        ),
+                        page_url=page.url,
+                        screenshot_path=screenshot_rel,
+                    )
+                    print("\n[HANDOFF] Replay reached an irreversible step and needs a human.")
+                    print("[HANDOFF] Step: " + step.step_id + " -- " + step.description)
+                    print("[HANDOFF] Open " + console_url + " and click 'Take control'.")
+                    print("[HANDOFF] Perform the step in the live browser, then click 'Hand back'.\n")
+                    human_actions = handoff_controller.wait_for_handback()
+                    print("[HANDOFF] Control returned. Verifying the resulting state.\n")
+
+                    evidence.log_event(
+                        "irreversible_step_performed_by_human",
+                        step_id=step.step_id,
+                        human_actions=human_actions,
+                    )
+
+                    # The human acted on the live page in place of the agent.
+                    # Record telemetry for the step and move on WITHOUT the
+                    # agent re-performing it -- re-clicking an irreversible
+                    # control after a human already did it would be exactly
+                    # the double-execution this tier exists to prevent.
+                    step_telemetry.append(
+                        StepTelemetry(
+                            step_id=step.step_id,
+                            resolved_tier=tier,
+                            resolved_strategy=strategy,
+                            recovery_applied=False,
+                        )
+                    )
+                    continue
+
                 return _finish(
                     evidence,
                     ReplayResult(
@@ -470,6 +533,8 @@ def replay_artifact(
             policy,
         )
     finally:
+        if handoff_controller is not None:
+            handoff_controller.stop_console()
         if owns_browser:
             if browser:
                 browser.close()

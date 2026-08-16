@@ -1,0 +1,3 @@
+{"ts": "2026-08-16T11:35:25.912400+00:00", "event": "replay_started", "artifact_id": "open_sub_account", "version": 1, "params": {"member_id": "8832"}}
+{"ts": "2026-08-16T11:35:27.433645+00:00", "event": "mock_auth_completed", "url": "http://localhost:4478/desk", "chaos": "none"}
+{"ts": "2026-08-16T11:35:27.770434+00:00", "event": "replay_finished", "status": "success"}

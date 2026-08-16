@@ -469,3 +469,163 @@ def test_artifact_without_a_policy_still_replays(tmp_path):
     )
 
     assert result.status == ReplayStatus.SUCCESS
+
+
+# ---- Irreversible-tier escalation ------------------------------------------
+
+
+def _mutating_artifact(tmp_path):
+    """An artifact whose final step lands on the irreversible confirm route
+    (see config/allowlist.yaml's irreversible_route_patterns)."""
+    return Artifact(
+        artifact_id="open_sub_account",
+        name="Open a sub-account",
+        version=1,
+        goal="Open a Holiday Savings sub-account for a member.",
+        target=TargetSpec(tenant="a", base_url=BASE, route_prefix="/desk"),
+        input_params={"member_id": ParamSpec(type="str", required=True)},
+        output_schema={"member_name": ParamSpec(type="str", required=True)},
+        steps=[
+            ArtifactStep(
+                step_id="s1",
+                action="click",
+                target_name="Confirm & Open Account",
+                target=[LocatorCandidate(strategy="role_name", value="button:Confirm & Open Account")],
+                target_url=BASE + "/desk/member/4521/subaccount/confirm",
+                description="click 'Confirm & Open Account'",
+            ),
+        ],
+        checkpoint=Checkpoint(description="opened", url_pattern="/desk/member/{member_id}/done"),
+        output_extraction={
+            "member_name": ExtractionRule(strategy="table_row_label", label="Member")
+        },
+        created_from_run_id="test_run",
+        created_at=datetime.now(timezone.utc),
+        approved=True,
+    )
+
+
+def test_irreversible_step_fails_closed_without_a_handoff_route(tmp_path):
+    """No human to route to means it must refuse, not proceed. This is the
+    'fails closed' half of the guarantee."""
+    artifact = _mutating_artifact(tmp_path)
+    site = {
+        "/desk": {
+            "text": "Confirm Sub-Account Details",
+            "elements": [
+                {"role": "button", "name": "Confirm & Open Account", "goto": "/desk/member/4521/done"}
+            ],
+        },
+        "/desk/member/4521/done": {"text": "Member\tDana Whitfield", "elements": []},
+    }
+    page = FakePage(site, "/desk")
+
+    result = replay_artifact(
+        artifact,
+        {"member_id": "4521"},
+        page=page,
+        mock_auth=False,
+        evidence_root=tmp_path,
+        # handoff not enabled
+    )
+
+    assert result.status == ReplayStatus.FAILURE
+    assert result.failure.step_class == FailureClass.POLICY_DENIED
+    assert "never run unattended" in result.failure.observed
+
+
+def test_irreversible_step_is_not_authorizable_by_the_legacy_flag(tmp_path):
+    """irreversible_confirmed is retained for API compatibility but grants
+    nothing -- the tier is structurally gated, not flag-gated."""
+    artifact = _mutating_artifact(tmp_path)
+    site = {
+        "/desk": {
+            "text": "Confirm Sub-Account Details",
+            "elements": [
+                {"role": "button", "name": "Confirm & Open Account", "goto": "/desk/member/4521/done"}
+            ],
+        },
+        "/desk/member/4521/done": {"text": "Member\tDana Whitfield", "elements": []},
+    }
+    page = FakePage(site, "/desk")
+
+    result = replay_artifact(
+        artifact,
+        {"member_id": "4521"},
+        page=page,
+        mock_auth=False,
+        evidence_root=tmp_path,
+        irreversible_confirmed=True,  # explicitly passed, and must not help
+        mutate_confirmed=True,
+    )
+
+    assert result.status == ReplayStatus.FAILURE
+    assert result.failure.step_class == FailureClass.POLICY_DENIED
+
+
+def test_irreversible_step_escalates_to_a_human_and_resumes(tmp_path):
+    """The other half: WITH a handoff route, an irreversible step pauses,
+    a real operator (a background thread here, hitting the real console
+    over real HTTP) takes control and performs it, hands back, and replay
+    resumes -- crucially WITHOUT the agent re-clicking the control the
+    human already actioned."""
+    import threading
+    import time as _time
+
+    import requests
+
+    artifact = _mutating_artifact(tmp_path)
+    site = {
+        "/desk": {
+            "text": "Confirm Sub-Account Details",
+            "elements": [
+                {"role": "button", "name": "Confirm & Open Account", "goto": "/desk/member/4521/done"}
+            ],
+        },
+        "/desk/member/4521/done": {"text": "Member\tDana Whitfield", "elements": []},
+    }
+    page = FakePage(site, "/desk")
+
+    def act_as_operator():
+        console_url = "http://127.0.0.1:4593"
+        for _ in range(150):
+            try:
+                status = requests.get(console_url + "/status", timeout=0.5).json()
+                if status["state"] == "paused" and status["intervention"]:
+                    break
+            except requests.exceptions.ConnectionError:
+                pass
+            _time.sleep(0.1)
+        else:
+            raise AssertionError("Console never reached a paused intervention state")
+
+        assert requests.post(console_url + "/take-control").json()["state"] == "human_control"
+        # The human performs the irreversible action themselves in the live
+        # session -- simulated here by driving the same fake page directly.
+        page.goto(page.base + "/desk/member/4521/done")
+        _time.sleep(0.2)
+        assert requests.post(console_url + "/hand-back").json()["state"] == "resuming"
+
+    operator = threading.Thread(target=act_as_operator)
+    operator.start()
+
+    result = replay_artifact(
+        artifact,
+        {"member_id": "4521"},
+        page=page,
+        mock_auth=False,
+        evidence_root=tmp_path,
+        handoff=True,
+        console_port=4593,
+    )
+
+    operator.join(timeout=10)
+
+    # The human's action moved the page to the checkpoint; replay verified
+    # it and extracted the declared output without re-performing the step.
+    assert result.status == ReplayStatus.SUCCESS
+    assert result.outputs == {"member_name": "Dana Whitfield"}
+
+    log_text = (tmp_path / result.run_dir.split("/")[-1] / "log.jsonl").read_text()
+    assert "intervention_created" in log_text
+    assert "irreversible_step_performed_by_human" in log_text

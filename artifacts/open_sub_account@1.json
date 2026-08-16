@@ -1,0 +1,175 @@
+{
+  "artifact_id": "open_sub_account",
+  "name": "Open a sub-account for a member",
+  "version": 1,
+  "goal": "For member 4521, open a new Holiday Savings sub-account with a 25.00 opening deposit, and confirm it. Report the member's name and the account type that was opened.",
+  "target": {
+    "tenant": "a",
+    "base_url": "http://localhost:4478",
+    "route_prefix": "/desk"
+  },
+  "input_params": {
+    "member_id": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    }
+  },
+  "output_schema": {
+    "member_name": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    },
+    "account_type": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    }
+  },
+  "steps": [
+    {
+      "step_id": "s1",
+      "action": "type",
+      "target_name": "Member ID",
+      "target": [
+        {
+          "strategy": "css_name_attr",
+          "value": "input[name='member_id']",
+          "confidence": 0.75
+        }
+      ],
+      "target_url": null,
+      "input_ref": "member_id",
+      "literal_value": null,
+      "description": "type 'Member ID'"
+    },
+    {
+      "step_id": "s2",
+      "action": "click",
+      "target_name": "Search",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "button:Search",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Search",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "http://localhost:4478/desk/search?member_id=4521",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Search'"
+    },
+    {
+      "step_id": "s3",
+      "action": "click",
+      "target_name": "View record",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "link:View record",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "View record",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "http://localhost:4478/desk/member/4521",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'View record'"
+    },
+    {
+      "step_id": "s4",
+      "action": "click",
+      "target_name": "Open Sub-Account",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "link:Open Sub-Account",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Open Sub-Account",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "http://localhost:4478/desk/member/4521/subaccount/new",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Open Sub-Account'"
+    },
+    {
+      "step_id": "s5",
+      "action": "select",
+      "target_name": "Account Type",
+      "target": [
+        {
+          "strategy": "css_name_attr",
+          "value": "select[name='account_type']",
+          "confidence": 0.75
+        }
+      ],
+      "target_url": null,
+      "input_ref": null,
+      "literal_value": "Holiday Savings",
+      "description": "select 'Account Type'"
+    },
+    {
+      "step_id": "s6",
+      "action": "click",
+      "target_name": "Continue",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "button:Continue",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Continue",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "http://localhost:4478/desk/member/4521/subaccount/review",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Continue'"
+    }
+  ],
+  "checkpoint": {
+    "description": "All required outputs (member_name, account_type) are visible on this page.",
+    "url_pattern": "/desk/member/{member_id}/subaccount/review"
+  },
+  "output_extraction": {
+    "member_name": {
+      "strategy": "table_row_label",
+      "label": "Member"
+    },
+    "account_type": {
+      "strategy": "table_row_label",
+      "label": "Account Type"
+    }
+  },
+  "policy": {
+    "allowed_origins": [
+      "http://localhost:4478"
+    ],
+    "allowed_actions": [
+      "click",
+      "select",
+      "type"
+    ]
+  },
+  "created_from_run_id": "20260816T113022Z_b107e3",
+  "created_at": "2026-08-16T11:30:22.555568Z",
+  "approved": false
+}

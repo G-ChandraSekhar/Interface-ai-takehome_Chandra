@@ -129,10 +129,11 @@ def cmd_replay(args):
         artifact,
         params,
         mutate_confirmed=args.mutate,
-        irreversible_confirmed=args.confirm_irreversible,
         mock_auth=not args.no_mock_auth,
         headless=args.headless,
         chaos=args.chaos,
+        handoff=args.handoff,
+        console_port=args.console_port,
     )
 
     print(f"\nStatus: {result.status.value}")
@@ -191,8 +192,15 @@ def main():
     p_replay.add_argument("--param", action="append", help="key=value, repeatable")
     p_replay.add_argument("--mutate", action="store_true", help="allow mutating-tier actions")
     p_replay.add_argument(
-        "--confirm-irreversible", action="store_true", help="allow the irreversible confirm step"
+        "--handoff",
+        action="store_true",
+        help=(
+            "route irreversible-tier steps to a human operator console. Irreversible "
+            "steps can never run unattended, so without this flag a replay that "
+            "reaches one fails closed."
+        ),
     )
+    p_replay.add_argument("--console-port", type=int, default=4590)
     p_replay.add_argument("--no-mock-auth", action="store_true")
     p_replay.add_argument("--headless", action="store_true")
     p_replay.add_argument(

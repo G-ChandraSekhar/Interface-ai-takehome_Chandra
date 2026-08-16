@@ -132,19 +132,28 @@ class PolicyEngine:
                 reason="Mutating action requires an approved artifact or explicit confirmation.",
             )
 
-        # IRREVERSIBLE
-        if confirmed:
-            return PolicyCheckResult(
-                decision=PolicyDecision.ALLOW,
-                risk_tier=risk_tier,
-                reason="Irreversible action allowed: explicit live confirmation given.",
-            )
+        # IRREVERSIBLE -- never runs unattended, under any flag.
+        #
+        # This is deliberately absolute rather than flag-gated. An earlier
+        # version accepted a `confirmed=True` CLI flag here, which made the
+        # safety property depend on how the tool happened to be invoked. In
+        # a banking context the stronger and more defensible guarantee is
+        # structural: an irreversible action in this system cannot execute
+        # without a human taking control of the live session at the moment
+        # it happens. Replay therefore routes this to the escalation path
+        # (Phase 6) rather than treating it as a failure -- see
+        # src/replay/engine.py.
+        #
+        # Note `confirmed` is intentionally ignored for this tier. It still
+        # governs the MUTATING tier above, where an operator authorizing a
+        # whole run in advance is reasonable.
         return PolicyCheckResult(
             decision=PolicyDecision.REQUIRE_CONFIRMATION,
             risk_tier=risk_tier,
             reason=(
-                "Irreversible action always requires live confirmation, "
-                "regardless of artifact approval status."
+                "Irreversible action requires a human to take control of the live "
+                "session -- it can never run unattended, regardless of artifact "
+                "approval status or confirmation flags."
             ),
         )
 

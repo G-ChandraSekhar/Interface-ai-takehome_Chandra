@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 from src.discovery.digest import Observation
 from src.guardrails.engine import PolicyEngine
-from src.guardrails.result import PolicyDecision
+from src.guardrails.result import PolicyDecision, RiskTier
 
 TOOL_SCHEMAS = [
     {
@@ -154,6 +154,11 @@ class ToolResult:
     is_mark_output: bool = False
     output_name: str | None = None
     output_value: str | None = None
+    # Set when the block is one only a human can clear (an irreversible
+    # action). The loop routes these to the operator console rather than
+    # letting the model retry a thing it structurally cannot do.
+    needs_human: bool = False
+    human_reason: str | None = None
 
 
 def execute_tool(
@@ -199,6 +204,24 @@ def execute_tool(
         if check.decision == PolicyDecision.DENY:
             return ToolResult(ok=False, message=f"DENIED by policy: {check.reason}")
         if check.decision == PolicyDecision.REQUIRE_CONFIRMATION:
+            # An IRREVERSIBLE block isn't something the model can resolve by
+            # trying differently -- it structurally requires a human. Flag it
+            # so the discovery loop can route it to the operator console
+            # (same path replay uses) instead of letting the model flail and
+            # eventually give up as "stuck".
+            if check.risk_tier == RiskTier.IRREVERSIBLE:
+                return ToolResult(
+                    ok=False,
+                    message=(
+                        "BLOCKED: " + check.reason + " Pausing for a human operator."
+                    ),
+                    needs_human=True,
+                    human_reason=(
+                        "Irreversible action on '" + (el.name or ref) + "' -- "
+                        "a human must take control of the live session to perform "
+                        "or refuse it."
+                    ),
+                )
             return ToolResult(
                 ok=False,
                 message=(
