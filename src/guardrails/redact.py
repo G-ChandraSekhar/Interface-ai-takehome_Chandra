@@ -8,17 +8,23 @@ from (e.g. "password", "supervisor_code") and we mask it if that name is on
 the configured sensitive list. This is simpler and more predictable than
 value-pattern heuristics, at the cost of needing the sensitive field list to
 be kept current -- an explicit, documented trade-off (see REPORT.md).
+
+Redaction fully replaces the value with a fixed placeholder rather than
+partially masking it (e.g. showing the first/last character). Partial
+masking still leaks information -- the value's length, its first and last
+characters -- which for something like a short numeric balance or a 4-digit
+code can narrow it down considerably. A fixed placeholder leaks nothing.
 """
 
 from __future__ import annotations
+
+REDACTED_PLACEHOLDER = "***REDACTED***"
 
 
 def redact_value(value: str) -> str:
     if not value:
         return value
-    if len(value) <= 2:
-        return "*" * len(value)
-    return value[0] + "*" * (len(value) - 2) + value[-1]
+    return REDACTED_PLACEHOLDER
 
 
 def redact_fields(data: dict, sensitive_field_names: set[str]) -> dict:

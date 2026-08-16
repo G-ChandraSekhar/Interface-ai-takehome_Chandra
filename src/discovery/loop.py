@@ -35,7 +35,7 @@ from src.discovery.prompts import build_system_prompt
 from src.discovery.tools import TOOL_SCHEMAS, execute_tool
 from src.escalation.controller import HandoffController
 from src.guardrails.engine import PolicyEngine
-from src.guardrails.redact import redact_value
+from src.guardrails.redact import REDACTED_PLACEHOLDER, redact_value
 from src.guardrails.result import PolicyDecision
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -238,7 +238,7 @@ def run_discovery(
                 if tool_call.name == "type" and "ref" in logged_args:
                     el = observation.elements.get(logged_args["ref"])
                     if el and el.name.lower() in policy.sensitive_field_names:
-                        logged_args["text"] = "***REDACTED***"
+                        logged_args["text"] = REDACTED_PLACEHOLDER
 
                 target_name = None
                 target_candidates = None

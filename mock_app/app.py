@@ -85,6 +85,12 @@ def member_detail(member_id):
     if directive == "SHOW_SESSION_EXPIRED":
         session["chaos"] = "none"  # fires once, then clears -- recoverable
         return render_template("session_expired.html", **_base_ctx(member_id=member_id))
+    if directive == "RAISE_APP_ERROR":
+        # A genuinely realistic hard failure: the backend errored while
+        # retrieving the record -- not tied to the mutating sub-account flow
+        # (which this project never built as a capability), so this scenario
+        # is reachable against the read-only lookup capability that exists.
+        return render_template("app_error.html", **_base_ctx(member_id=member_id)), 500
 
     if member_id in RESTRICTED_IDS:
         return render_template("denied.html", **_base_ctx(member_id=member_id)), 403

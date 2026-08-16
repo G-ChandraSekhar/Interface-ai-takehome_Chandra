@@ -45,7 +45,7 @@ def apply_chaos(chaos: str, phase: str) -> str | None:
     if chaos == "session_timeout" and phase == "member_detail":
         return "SHOW_SESSION_EXPIRED"
 
-    if chaos == "error500" and phase == "subaccount_submit":
+    if chaos == "error500" and phase in ("member_detail", "subaccount_submit"):
         return "RAISE_APP_ERROR"
 
     if chaos == "supervisor" and phase == "subaccount_submit":

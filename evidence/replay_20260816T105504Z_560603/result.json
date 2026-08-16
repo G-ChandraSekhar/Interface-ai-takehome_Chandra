@@ -1,0 +1,26 @@
+{
+  "status": "failure",
+  "outcome_code": null,
+  "outcome_message": null,
+  "outputs": {},
+  "failure": {
+    "class": "app_error",
+    "step_id": "s3",
+    "expected": "click 'View record'",
+    "observed": "Application error page shown after action."
+  },
+  "step_telemetry": [
+    {
+      "step_id": "s1",
+      "resolved_tier": 0,
+      "resolved_strategy": "css_name_attr",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s2",
+      "resolved_tier": 0,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    }
+  ]
+}

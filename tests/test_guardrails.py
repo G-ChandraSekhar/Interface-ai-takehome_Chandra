@@ -100,9 +100,12 @@ def test_budget_within_limits(engine):
     assert result.decision == PolicyDecision.ALLOW
 
 
-def test_redact_value_masks_middle():
-    assert redact_value("2468") == "2**8"
-    assert redact_value("ab") == "**"
+def test_redact_value_fully_replaces_not_partially_masks():
+    """Full replacement, not partial masking -- partial masking still
+    leaks the value's length and first/last characters, which for a short
+    numeric code or balance can narrow it down considerably."""
+    assert redact_value("2468") == "***REDACTED***"
+    assert redact_value("ab") == "***REDACTED***"
     assert redact_value("") == ""
 
 
@@ -111,4 +114,4 @@ def test_redact_fields_only_masks_sensitive_keys():
     redacted = redact_fields(data, {"supervisor_code"})
     assert redacted["member_id"] == "4521"
     assert redacted["account_type"] == "Holiday Savings"
-    assert redacted["supervisor_code"] == "2**8"
+    assert redacted["supervisor_code"] == "***REDACTED***"

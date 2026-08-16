@@ -651,6 +651,36 @@ All three are covered by new or updated tests (`tests/test_escalation.py`,
 `tests/test_overlay.py`) — run `python3 -m pytest tests/test_escalation.py
 tests/test_overlay.py -v` to see them (27 passed, no browser needed).
 
+Two further changes came from directly comparing committed `/evidence/`
+against the same colleague's repo:
+
+4. **A genuine, real-browser hard-failure replay is now reachable and
+   committed** (`?chaos=error500` on the member-lookup page, not just the
+   mutating sub-account flow this project never built). Previously this
+   scenario only existed as a synthetic fake-page unit test
+   (`test_hard_failure_app_error`) — real, but not the live evidence the
+   brief's deliverable #3 calls for. `mock_app/chaos.py` and `app.py` now
+   raise the same hard 500 on `GET /member/<id>?chaos=error500`, giving a
+   completely realistic scenario ("the backend errored while retrieving a
+   record") without needing a mutating capability to exist first. See
+   "Regenerate a genuine hard-failure replay" below.
+5. **Redaction now fully replaces sensitive values** (`***REDACTED***`)
+   instead of partially masking them (`2**8`). Partial masking still leaks
+   real information — the value's length and its first/last characters —
+   which for a short numeric balance or a 4-digit code can narrow it down
+   considerably. A fixed placeholder leaks nothing. `src/guardrails/redact.py`.
+
+### Regenerate a genuine hard-failure replay (real browser, real evidence)
+
+```bash
+python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \
+  --param member_id=4521 --chaos error500
+```
+
+Expected: `status: failure`, failure class `app_error`. This writes a real
+`evidence/replay_<run_id>/` folder — commit it alongside the others as the
+brief's required hard-failure evidence.
+
 ## Repository guide
 
 - `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection (Phase 0)
