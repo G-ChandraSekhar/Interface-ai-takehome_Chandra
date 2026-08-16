@@ -1,0 +1,3 @@
+{"ts": "2026-08-16T09:08:42.720078+00:00", "event": "replay_started", "artifact_id": "lookup_member_savings_balance", "version": 1, "params": {"member_id": "8832"}}
+{"ts": "2026-08-16T09:08:43.577767+00:00", "event": "mock_auth_completed", "url": "http://localhost:4478/desk", "chaos": "none"}
+{"ts": "2026-08-16T09:08:43.662419+00:00", "event": "replay_finished", "status": "success"}

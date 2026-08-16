@@ -58,7 +58,10 @@ def _synthetic_success_log(tmp_path: Path) -> Path:
             "ts": "...",
             "event": "step",
             "step_number": 1,
-            "page_url": "http://127.0.0.1:4478/desk",
+            # page_url is logged AFTER the action runs (loop.py calls
+            # evidence.log_step post-execute_tool) -- so this click's own
+            # page_url is already its destination, the search results page.
+            "page_url": "http://127.0.0.1:4478/desk/search?member_id=4521",
             "observation": "...",
             "assistant_content": None,
             "tool_name": "click",
@@ -75,7 +78,7 @@ def _synthetic_success_log(tmp_path: Path) -> Path:
             "ts": "...",
             "event": "step",
             "step_number": 2,
-            "page_url": "http://127.0.0.1:4478/desk/search?member_id=4521",
+            "page_url": "http://127.0.0.1:4478/desk/member/4521",
             "observation": "...",
             "assistant_content": None,
             "tool_name": "click",
@@ -205,6 +208,27 @@ def test_distill_rejects_missing_required_output(tmp_path):
             params={"member_id": "4521"},
             required_outputs=["member_name", "savings_balance", "account_status"],
         )
+
+
+def test_distill_sets_click_target_url_from_its_own_post_action_page_url(tmp_path):
+    """Regression test: target_url must come from the click step's OWN
+    event.page_url (which loop.py logs post-action), not a later step's --
+    otherwise a click's destination gets misattributed to the wrong step."""
+    log_path = _synthetic_success_log(tmp_path)
+    artifact = distill_run(
+        log_path,
+        artifact_id="lookup_member_savings_balance",
+        name="Look up member savings balance",
+        params={"member_id": "4521"},
+        required_outputs=["member_name", "savings_balance"],
+    )
+
+    search_step = next(s for s in artifact.steps if s.target_name == "Search")
+    view_record_step = next(s for s in artifact.steps if s.target_name == "View record")
+
+    assert search_step.target_url == "http://127.0.0.1:4478/desk/search?member_id=4521"
+    assert view_record_step.target_url == "http://127.0.0.1:4478/desk/member/4521"
+    assert search_step.target_url != view_record_step.target_url
 
 
 def test_distill_builds_output_extraction_rules(tmp_path):

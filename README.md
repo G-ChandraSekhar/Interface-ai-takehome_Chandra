@@ -12,6 +12,7 @@ with no model in the decision loop. See `REPORT.md` for the design write-up
 - [x] Phase 2 — discovery agent loop (live LLM run required — see below)
 - [x] Phase 3 — artifact schema + distiller
 - [x] Phase 4 — deterministic replay (locator fallback, 3-way result, output extraction)
+- [x] Phase 5 — agent-facing capability API (stretch goal)
 - [ ] Phase 2 — discovery agent loop
 - [ ] Phase 3 — artifact schema + distiller
 - [ ] Phase 4 — deterministic replay engine
@@ -388,12 +389,71 @@ result.json, screenshot on any non-success outcome) -- **commit a few of
 these** (success, the different-member success, and both business outcomes
 at minimum) as the required replay evidence.
 
+## Phase 5 — agent-facing capability API (stretch goal)
+
+`src/capability_api/server.py` is a small FastAPI service that makes the
+brief's own thesis literal: `GET /capabilities` lists every saved artifact
+as an OpenAI-style tool schema (auto-derived from the artifact's own typed
+`input_params`/`output_schema` -- never hand-duplicated, so it can't drift),
+and `POST /capabilities/{artifact_id}/invoke` runs it through the **exact
+same** `replay_artifact()` the CLI uses. Same three-way result, same
+guardrails, same evidence trail -- this isn't a second execution path, it's
+a second front door onto the one that already exists.
+
+**Deliberate safety boundary**: this API never lets a caller supply
+`mutate_confirmed`/`irreversible_confirmed` -- both are hardcoded `False`.
+A mutating-tier artifact can only run unattended through this API if it's
+itself marked `approved` (a human reviewer's decision baked into the
+artifact file, not something a calling agent can set). An irreversible-tier
+artifact can **never** run through this API at all -- by construction it
+always comes back denied, forcing that class of action through the
+human-supervised CLI/escalation path instead.
+
+### Tests (no browser needed for these)
+
+```bash
+python3 -m pytest tests/test_capability_api.py -v
+```
+
+Expected: **7 passed**. These are real HTTP round-trips through FastAPI's
+TestClient hitting the actual `replay_artifact()` engine -- not mocks. The
+missing-param and off-allowlist tests work without a browser because
+`replay_artifact()` itself returns before ever launching Playwright for
+those cases (see Phase 4). Schema generation, single-capability lookup,
+404 handling, and an empty catalog are also covered.
+
+### Run it for real and prove the loop closes
+
+Terminal 1 (mock app, as always):
+```bash
+TENANT=a PORT=4478 python3 mock_app/app.py
+```
+
+Terminal 2 (the capability API):
+```bash
+uvicorn src.capability_api.server:app --port 8000
+```
+
+Terminal 3 (an "AI agent" that knows nothing about Playwright, the mock
+app, or the replay engine -- only the HTTP API):
+```bash
+python3 -m src.capability_api.demo_agent --member-id 8832
+```
+
+Expected output: the agent discovers `lookup_member_savings_balance` from
+`GET /capabilities`, picks it, invokes it with `member_id=8832`, and prints
+back `member_name: Marcus Ojo`, `savings_balance: 918.20` -- the same real
+data Phase 4's replay CLI produced, now reachable purely through the
+capability catalog. Try `curl http://127.0.0.1:8000/capabilities | python3 -m json.tool`
+directly too, to see the raw tool schema an agent would actually receive.
+
 ## Repository guide (grows each phase)
 
 - `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection
 - `src/discovery/` — LLM-driven observe→decide→act loop (Phase 2)
 - `src/artifact/` — capability schema, distiller, extraction, and JSON storage (Phase 3-4)
 - `src/replay/` — model-free replay engine, locator resolver, detectors, checkpoint matching (Phase 4)
+- `src/capability_api/` — agent-facing capability catalog + invoke API, stretch goal (Phase 5)
 - `src/replay/` — deterministic, model-free executor (Phase 4)
 - `src/capability_api/` — agent-facing capability catalog/invoke API (Phase 5, stretch goal)
 - `src/escalation/` — control lease + operator console for human handoff (Phase 6)

@@ -158,8 +158,13 @@ def distill_run(
     output_schema = {name: ParamSpec(type="str", required=True) for name in required_outputs}
     input_params = {name: ParamSpec(type="str", required=True) for name in params}
 
-    output_extraction: dict = {}
-    no_label_for = []
+    # Build the extraction rule for each required output from the label
+    # captured at mark_output time. Missing a label here means replay would
+    # have no reliable way to re-find that value on a different page -- we
+    # refuse to distill rather than silently fall back to replaying the
+    # frozen discovery-time value, which would defeat parameterization.
+    output_extraction: dict[str, ExtractionRule] = {}
+    no_label_for: list[str] = []
     for output_name in required_outputs:
         matching_events = [e for e in output_events if e["name"] == output_name]
         label = matching_events[-1].get("extraction_label") if matching_events else None
