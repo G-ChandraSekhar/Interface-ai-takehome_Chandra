@@ -681,6 +681,54 @@ Expected: `status: failure`, failure class `app_error`. This writes a real
 `evidence/replay_<run_id>/` folder — commit it alongside the others as the
 brief's required hard-failure evidence.
 
+## Robustness pass
+
+Three further improvements, all adopted after the reference-repo comparison
+above and each covered by new tests:
+
+6. **Per-candidate locator diagnostics** (`src/replay/locator_resolver.py`).
+   Resolution now records *why* every candidate was rejected —
+   `no_match`, `not_unique` (with the element count), `not_visible`,
+   `disabled`, `not_applicable`, or `error: <detail>` — rather than
+   reporting a bare "nothing resolved." A failure's `observed` field now
+   reads like `tier 1 role_name: not_unique (matched 3); tier 2 css_id:
+   no_match (matched 0)`, which tells an operator exactly what changed
+   about the page instead of requiring them to reproduce the run. This
+   pass also added the visibility/enabled checks the resolver previously
+   lacked entirely — an element that resolved uniquely but was hidden or
+   disabled was formerly accepted and acted on.
+
+7. **Confidence scores on locator candidates** (`src/artifact/schema.py`,
+   populated by `src/artifact/distill.py`). Fixed per-strategy priors
+   (`role_name` 0.9 → `css_name_attr` 0.75 → `css_id` 0.7 → `text` 0.55 →
+   `positional` 0.2) reflecting how tightly each locator kind is coupled to
+   things that change. Not measured probabilities — they make the drift
+   signal quantitative rather than merely ordinal: a step resolving at 0.55
+   is one copy edit from breaking, even while it still passes. Replay also
+   now logs a `locator_rescued_by_fallback` event and records
+   `rescued_from` telemetry whenever a step resolves above tier 1, so
+   creeping drift is visible in evidence before it becomes a failure.
+
+8. **Per-artifact embedded policy** (`ArtifactPolicy` in the schema).
+   Each artifact carries its own `allowed_origins` / `allowed_actions`,
+   derived at distill time from what the run actually did — the single
+   origin it touched and only the action kinds it actually used. Replay
+   enforces this **in addition to** the global `config/allowlist.yaml`,
+   never instead of it; both must permit an action. The point is that a
+   capability can't quietly widen its reach if the global policy is later
+   loosened for some unrelated capability's sake: what this artifact's
+   reviewer signed off on stays binding. Optional for backwards
+   compatibility — artifacts distilled before this field existed have
+   `policy: null` and are governed by the global policy alone.
+
+```bash
+python3 -m pytest tests/test_locator_diagnostics.py tests/test_replay_engine.py tests/test_artifact.py -v
+```
+
+Expected: **37 passed** — covering every rejection reason, artifact-policy
+enforcement for both action-kind and origin violations, backwards
+compatibility for policy-less artifacts, and confidence-score assignment.
+
 ## Repository guide
 
 - `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection (Phase 0)

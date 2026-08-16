@@ -60,8 +60,29 @@ def apply_overlay(base, overlay):
     if "target" in overlay:
         data["target"].update(overlay["target"])
 
+        # An overlay that retargets the origin must also carry that origin
+        # into the artifact's own policy, or the artifact would refuse to
+        # run against the very tenant the overlay exists to reach. This is
+        # not a weakening of the check: approving a tenant overlay IS the
+        # reviewer approving that tenant's origin for this capability, and
+        # the resulting artifact is still strictly bounded -- it permits the
+        # overlay's origin and the base's, nothing wider. The global
+        # operator policy in config/allowlist.yaml still applies on top and
+        # is unaffected by anything an overlay says.
+        new_base_url = overlay["target"].get("base_url")
+        if new_base_url and data.get("policy"):
+            allowed = data["policy"]["allowed_origins"]
+            if new_base_url not in allowed:
+                data["policy"]["allowed_origins"] = allowed + [new_base_url]
+
     if "checkpoint" in overlay:
         data["checkpoint"].update(overlay["checkpoint"])
+
+    # An overlay may also explicitly widen/narrow the artifact policy, for
+    # cases the origin rule above doesn't cover (e.g. a tenant whose flow
+    # genuinely needs an extra action kind). Explicit and reviewable.
+    if "policy" in overlay and data.get("policy"):
+        data["policy"].update(overlay["policy"])
 
     for step_id, step_patch in overlay.get("step_overrides", {}).items():
         found = False

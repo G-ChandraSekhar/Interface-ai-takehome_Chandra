@@ -18,6 +18,7 @@ import pytest
 
 from src.artifact.schema import (
     Artifact,
+    ArtifactPolicy,
     ArtifactStep,
     Checkpoint,
     ExtractionRule,
@@ -377,3 +378,94 @@ def test_off_allowlist_target_is_denied(tmp_path):
 
     assert result.status == ReplayStatus.FAILURE
     assert result.failure.step_class == FailureClass.POLICY_DENIED
+
+
+# ---- Per-artifact embedded policy (defense in depth) -----------------------
+
+
+def test_artifact_policy_blocks_an_action_kind_it_never_declared(tmp_path):
+    """The artifact's own policy is enforced IN ADDITION to the global one.
+    Here the global policy would happily allow a click, but this artifact
+    only ever declared 'type' -- so the click is refused. This is what stops
+    a capability quietly widening its reach if the global policy is later
+    loosened for some unrelated capability."""
+    artifact = make_lookup_artifact(tmp_path)
+    artifact.policy = ArtifactPolicy(
+        allowed_origins=[BASE],
+        allowed_actions=["type"],  # deliberately omits "click"
+    )
+    site = _base_site()
+    site["/desk/search?member_id=4521"] = _search_result_page("4521")
+    site["/desk/member/4521"] = {
+        "text": "Member Name\tDana Whitfield\nRegular Savings\t2,410.55",
+        "elements": [],
+    }
+    page = FakePage(site, "/desk")
+
+    result = replay_artifact(
+        artifact, {"member_id": "4521"}, page=page, mock_auth=False, evidence_root=tmp_path
+    )
+
+    assert result.status == ReplayStatus.FAILURE
+    assert result.failure.step_class == FailureClass.POLICY_DENIED
+    assert "allowed_actions" in result.failure.observed
+
+
+def test_artifact_policy_blocks_an_origin_it_never_declared(tmp_path):
+    artifact = make_lookup_artifact(tmp_path)
+    # Global allowlist permits both 4478 and 4479, but this artifact only
+    # ever declared the one origin it was actually recorded against.
+    artifact.policy = ArtifactPolicy(
+        allowed_origins=["http://127.0.0.1:9999"],
+        allowed_actions=["type", "click"],
+    )
+    page = FakePage(_base_site(), "/desk")
+
+    result = replay_artifact(
+        artifact, {"member_id": "4521"}, page=page, mock_auth=False, evidence_root=tmp_path
+    )
+
+    assert result.status == ReplayStatus.FAILURE
+    assert result.failure.step_class == FailureClass.POLICY_DENIED
+    assert "allowed_origins" in result.failure.observed
+
+
+def test_artifact_policy_permits_what_it_declared(tmp_path):
+    artifact = make_lookup_artifact(tmp_path)
+    artifact.policy = ArtifactPolicy(
+        allowed_origins=[BASE],
+        allowed_actions=["type", "click"],
+    )
+    site = _base_site()
+    site["/desk/search?member_id=4521"] = _search_result_page("4521")
+    site["/desk/member/4521"] = {
+        "text": "Member Name\tDana Whitfield\nMember ID\t4521\nRegular Savings\t2,410.55\nStatus\tActive",
+        "elements": [],
+    }
+    page = FakePage(site, "/desk")
+
+    result = replay_artifact(
+        artifact, {"member_id": "4521"}, page=page, mock_auth=False, evidence_root=tmp_path
+    )
+
+    assert result.status == ReplayStatus.SUCCESS
+
+
+def test_artifact_without_a_policy_still_replays(tmp_path):
+    """Backwards compatibility: artifacts distilled before this field
+    existed have policy=None and are governed by the global policy alone."""
+    artifact = make_lookup_artifact(tmp_path)
+    assert artifact.policy is None
+    site = _base_site()
+    site["/desk/search?member_id=4521"] = _search_result_page("4521")
+    site["/desk/member/4521"] = {
+        "text": "Member Name\tDana Whitfield\nMember ID\t4521\nRegular Savings\t2,410.55\nStatus\tActive",
+        "elements": [],
+    }
+    page = FakePage(site, "/desk")
+
+    result = replay_artifact(
+        artifact, {"member_id": "4521"}, page=page, mock_auth=False, evidence_root=tmp_path
+    )
+
+    assert result.status == ReplayStatus.SUCCESS

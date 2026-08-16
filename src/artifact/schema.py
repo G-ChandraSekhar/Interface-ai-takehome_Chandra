@@ -42,6 +42,15 @@ class LocatorCandidate(BaseModel):
 
     strategy: Literal["role_name", "css_name_attr", "css_id", "text", "positional"]
     value: str
+    # How much this strategy is trusted to still identify the same element
+    # later. Not a probability -- a fixed per-strategy prior reflecting how
+    # tightly the locator is coupled to things that change: an accessible
+    # role+name survives most markup edits, a name= attribute usually does,
+    # visible text changes with copy edits, and a positional marker is a
+    # recorded admission that nothing stable was found. Makes the drift
+    # signal quantitative: a step resolving at confidence 0.4 is one markup
+    # change from breaking, even while it still passes.
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class ParamSpec(BaseModel):
@@ -100,6 +109,23 @@ class ExtractionRule(BaseModel):
     label: str
 
 
+class ArtifactPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The artifact's OWN allowlist, checked in addition to the global
+    # operator policy in config/allowlist.yaml -- not instead of it. Both
+    # must permit an action for it to run. This is defense in depth with a
+    # specific purpose: the global policy is what the operator permits in
+    # general, while this is what THIS capability's reviewer approved when
+    # they signed it off. A capability can therefore never quietly widen
+    # its own reach if the global policy is later loosened for some other
+    # capability's sake.
+    allowed_origins: list[str]
+    allowed_actions: list[
+        Literal["navigate", "click", "type", "select", "wait_for", "read_text"]
+    ]
+
+
 class Artifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -115,6 +141,9 @@ class Artifact(BaseModel):
     # how to re-derive each declared output from whatever page replay
     # actually ends on -- required for every key in output_schema
     output_extraction: dict[str, ExtractionRule]
+    # Optional so artifacts distilled before this field existed still load;
+    # when present, replay enforces it on top of the global policy.
+    policy: Optional[ArtifactPolicy] = None
     created_from_run_id: str
     created_at: datetime
     approved: bool = False

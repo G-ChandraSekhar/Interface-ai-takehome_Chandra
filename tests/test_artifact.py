@@ -290,3 +290,44 @@ def test_artifact_round_trips_through_storage(tmp_path):
 
     loaded = load_artifact(saved_path)
     assert loaded == artifact
+
+
+def test_distill_assigns_per_strategy_confidence_scores(tmp_path):
+    """Confidence makes the drift signal quantitative: a step resolving via
+    a low-confidence strategy is one markup change from breaking, even
+    while it still passes today."""
+    log_path = _synthetic_success_log(tmp_path)
+    artifact = distill_run(
+        log_path,
+        artifact_id="lookup_member_savings_balance",
+        name="Look up member savings balance",
+        params={"member_id": "4521"},
+        required_outputs=["member_name", "savings_balance"],
+    )
+
+    search_step = next(s for s in artifact.steps if s.target_name == "Search")
+    by_strategy = {c.strategy: c.confidence for c in search_step.target}
+    # role_name is the most change-resistant, text the least among these
+    assert by_strategy["role_name"] == 0.9
+    assert by_strategy["text"] == 0.55
+    assert by_strategy["role_name"] > by_strategy["text"]
+
+
+def test_distill_populates_the_artifacts_own_policy(tmp_path):
+    """Defense in depth: the artifact carries the narrowest policy that
+    still covers what this run actually did -- only the origin it touched,
+    only the action kinds it actually used."""
+    log_path = _synthetic_success_log(tmp_path)
+    artifact = distill_run(
+        log_path,
+        artifact_id="lookup_member_savings_balance",
+        name="Look up member savings balance",
+        params={"member_id": "4521"},
+        required_outputs=["member_name", "savings_balance"],
+    )
+
+    assert artifact.policy is not None
+    assert artifact.policy.allowed_origins == ["http://127.0.0.1:4478"]
+    # the synthetic run only typed and clicked -- nothing else is permitted
+    assert set(artifact.policy.allowed_actions) == {"type", "click"}
+    assert "navigate" not in artifact.policy.allowed_actions

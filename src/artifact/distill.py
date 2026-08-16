@@ -24,6 +24,7 @@ from urllib.parse import urlparse
 
 from src.artifact.schema import (
     Artifact,
+    ArtifactPolicy,
     ArtifactStep,
     Checkpoint,
     ExtractionRule,
@@ -35,6 +36,19 @@ from src.artifact.schema import (
 _TENANT_BY_ROUTE_PREFIX = {"/desk": "a", "/operations": "b"}
 
 _ACTIONABLE_TOOLS = {"click", "type", "select"}
+
+# Fixed per-strategy priors, not measured probabilities -- they encode how
+# tightly each locator kind is coupled to things that change. An accessible
+# role+name survives most markup edits; a name= attribute usually does; an
+# id is stable unless it's generated; visible text moves with copy edits;
+# a positional marker is a recorded admission that nothing stable existed.
+_STRATEGY_CONFIDENCE = {
+    "role_name": 0.9,
+    "css_name_attr": 0.75,
+    "css_id": 0.7,
+    "text": 0.55,
+    "positional": 0.2,
+}
 
 
 class DistillationError(ValueError):
@@ -55,10 +69,21 @@ def _build_step(event: dict, params: dict[str, str], step_id: str) -> ArtifactSt
     tool_name = event["tool_name"]
     target_name = event.get("target_name")
     raw_candidates = event.get("target_candidates") or []
-    candidates = [LocatorCandidate(**c) for c in raw_candidates]
+    candidates = [
+        LocatorCandidate(
+            strategy=c["strategy"],
+            value=c["value"],
+            confidence=_STRATEGY_CONFIDENCE.get(c["strategy"], 0.5),
+        )
+        for c in raw_candidates
+    ]
     if not candidates:
         candidates = [
-            LocatorCandidate(strategy="positional", value="no stable locator recorded")
+            LocatorCandidate(
+                strategy="positional",
+                value="no stable locator recorded",
+                confidence=_STRATEGY_CONFIDENCE["positional"],
+            )
         ]
 
     input_ref = None
@@ -201,6 +226,15 @@ def distill_run(
         steps=steps,
         checkpoint=checkpoint,
         output_extraction=output_extraction,
+        # The artifact's own policy, derived from what this run actually
+        # did -- the single origin it touched and only the action kinds it
+        # actually used. Deliberately narrow: a lookup capability that only
+        # ever typed and clicked has no business being able to navigate
+        # arbitrarily later, even if the global policy would permit it.
+        policy=ArtifactPolicy(
+            allowed_origins=[base_url],
+            allowed_actions=sorted({step.action for step in steps}),
+        ),
         created_from_run_id=created_from_run_id,
         created_at=run_started["ts"],
         approved=False,

@@ -33,7 +33,7 @@ from src.guardrails.redact import redact_value
 from src.guardrails.result import PolicyDecision
 from src.replay.checkpoint import checkpoint_met
 from src.replay.detectors import detect_business_outcome, detect_hard_failure, detect_recoverable
-from src.replay.locator_resolver import resolve_locator
+from src.replay.locator_resolver import ResolutionFailure, resolve_locator
 from src.replay.result import FailureClass, FailureDetail, ReplayResult, ReplayStatus, StepTelemetry
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -41,6 +41,33 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 def _page_text(page):
     return page.locator("body").inner_text()
+
+
+def _artifact_policy_violation(artifact, action, url):
+    """Returns a reason string if the artifact's own declared policy forbids
+    this action, or None if it permits it (or declares no policy at all).
+
+    Checked in ADDITION to the global operator policy, never instead of it.
+    """
+    policy = getattr(artifact, "policy", None)
+    if policy is None:
+        return None
+
+    if action not in policy.allowed_actions:
+        return (
+            "Action '" + action + "' is outside this artifact's declared allowed_actions "
+            + str(policy.allowed_actions)
+        )
+
+    parsed = urlparse(url)
+    origin = parsed.scheme + "://" + parsed.netloc
+    if origin not in policy.allowed_origins:
+        return (
+            "Origin '" + origin + "' is outside this artifact's declared allowed_origins "
+            + str(policy.allowed_origins)
+        )
+
+    return None
 
 
 def _mock_login(page, base_url, route_prefix, chaos="none"):
@@ -143,7 +170,16 @@ def replay_artifact(
         for step in artifact.steps:
             resolution = resolve_locator(page, step.target)
 
-            if resolution is None:
+            if isinstance(resolution, ResolutionFailure):
+                # Log the full per-candidate diagnostic to evidence before
+                # classifying -- even when this turns out to be a business
+                # outcome rather than a locator problem, knowing exactly why
+                # the ladder didn't resolve is useful context.
+                evidence.log_event(
+                    "locator_resolution_failed",
+                    step_id=step.step_id,
+                    attempts=resolution.attempts_as_dicts(),
+                )
                 page_text = _page_text(page)
                 business = detect_business_outcome(page_text)
                 if business:
@@ -187,7 +223,9 @@ def replay_artifact(
                             step_class=FailureClass.LOCATOR_NOT_FOUND,
                             step_id=step.step_id,
                             expected=step.description,
-                            observed="No candidate in the locator ladder resolved to exactly one element.",
+                            # Per-candidate detail, not just "nothing resolved" --
+                            # tells an operator exactly what changed about the page.
+                            observed=resolution.summary(),
                         ),
                         step_telemetry=step_telemetry,
                         run_dir=str(run_dir),
@@ -196,7 +234,7 @@ def replay_artifact(
                     policy,
                 )
 
-            loc, strategy, tier = resolution
+            loc, strategy, tier = resolution.locator, resolution.strategy, resolution.tier
 
             value = None
             if step.input_ref:
@@ -232,6 +270,32 @@ def replay_artifact(
             # may land on a different concrete URL (e.g. /member/8832) than
             # the frozen string suggests.
             check_url = step.target_url if (step.action == "click" and step.target_url) else page.url
+
+            # Defense in depth: the artifact's OWN policy is checked first,
+            # in addition to (never instead of) the global operator policy
+            # below. Both must permit the action. This means a capability
+            # can never quietly widen its reach if the global policy is
+            # later loosened for some unrelated capability's sake -- what
+            # this artifact's reviewer signed off on stays binding.
+            artifact_violation = _artifact_policy_violation(artifact, step.action, check_url)
+            if artifact_violation:
+                return _finish(
+                    evidence,
+                    ReplayResult(
+                        status=ReplayStatus.FAILURE,
+                        failure=FailureDetail(
+                            step_class=FailureClass.POLICY_DENIED,
+                            step_id=step.step_id,
+                            expected="action within the artifact's own declared policy",
+                            observed=artifact_violation,
+                        ),
+                        step_telemetry=step_telemetry,
+                        run_dir=str(run_dir),
+                    ),
+                    page,
+                    policy,
+                )
+
             policy_check = policy.check_action(
                 step.action,
                 check_url,
@@ -330,12 +394,26 @@ def replay_artifact(
                 recovery_applied = True
                 evidence.log_event("recovery_applied", step_id=step.step_id, condition=recoverable)
 
+            # A tier above 1 means the top-ranked locator no longer worked
+            # and a fallback rescued this step -- worth logging loudly, since
+            # a step that starts needing fallbacks is drifting toward
+            # eventual failure even while it still "passes".
+            if tier > 1:
+                evidence.log_event(
+                    "locator_rescued_by_fallback",
+                    step_id=step.step_id,
+                    resolved_tier=tier,
+                    resolved_strategy=strategy,
+                    attempts=resolution.attempts_as_dicts(),
+                )
+
             step_telemetry.append(
                 StepTelemetry(
                     step_id=step.step_id,
                     resolved_tier=tier,
                     resolved_strategy=strategy,
                     recovery_applied=recovery_applied,
+                    rescued_from=(resolution.attempts_as_dicts() if tier > 1 else None),
                 )
             )
 
@@ -432,6 +510,7 @@ def _finish(evidence, result, page, policy):
                     "resolved_tier": t.resolved_tier,
                     "resolved_strategy": t.resolved_strategy,
                     "recovery_applied": t.recovery_applied,
+                    **({"rescued_from": t.rescued_from} if t.rescued_from else {}),
                 }
                 for t in result.step_telemetry
             ],

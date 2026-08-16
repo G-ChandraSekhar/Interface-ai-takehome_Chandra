@@ -51,9 +51,17 @@ class FailureDetail:
 @dataclass
 class StepTelemetry:
     step_id: str
+    # 1-based tier in the locator ladder that actually resolved. Tier 1 is
+    # the top-ranked (most semantic) candidate; anything above 1 means the
+    # preferred locator no longer worked and a fallback rescued the step --
+    # this is the drift signal worth watching across many production runs.
     resolved_tier: Optional[int]
     resolved_strategy: Optional[str]
     recovery_applied: bool = False
+    # Set when resolution needed a fallback (tier > 1): the full
+    # per-candidate account of what was rejected and why, so drift can be
+    # diagnosed from telemetry alone without re-running.
+    rescued_from: Optional[list] = None
 
 
 @dataclass

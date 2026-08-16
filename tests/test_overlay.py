@@ -234,3 +234,49 @@ def test_overlaid_artifact_actually_replays_successfully_against_tenant_b(tmp_pa
 
     assert result.status == ReplayStatus.SUCCESS
     assert result.outputs == {"member_name": "Priya Nandakumar", "savings_balance": "5,002.00"}
+
+
+# ---- Overlay + per-artifact policy interaction -----------------------------
+
+
+def test_overlay_retargeting_origin_also_widens_the_artifact_policy():
+    """A real interaction caught live: the artifact's own policy declares
+    only the origin it was recorded against, so an overlay retargeting it
+    to another tenant would be refused by the artifact's own policy -- the
+    overlay would be unusable. Approving a tenant overlay IS approving that
+    tenant's origin for this capability, so the overlay carries it into the
+    policy. Still strictly bounded: base origin + overlay origin, nothing
+    wider, and the global operator policy still applies on top."""
+    from src.artifact.schema import ArtifactPolicy
+
+    base = _base_artifact()
+    base.policy = ArtifactPolicy(allowed_origins=[BASE], allowed_actions=["type", "click"])
+
+    overlaid = apply_overlay(base, TENANT_B_OVERLAY)
+
+    assert BASE in overlaid.policy.allowed_origins
+    assert "http://localhost:4479" in overlaid.policy.allowed_origins
+    assert len(overlaid.policy.allowed_origins) == 2  # nothing wider than needed
+    # action kinds are untouched -- only the origin needed widening
+    assert set(overlaid.policy.allowed_actions) == {"type", "click"}
+
+
+def test_overlay_can_explicitly_adjust_the_policy_too():
+    from src.artifact.schema import ArtifactPolicy
+
+    base = _base_artifact()
+    base.policy = ArtifactPolicy(allowed_origins=[BASE], allowed_actions=["type"])
+
+    overlay = dict(TENANT_B_OVERLAY, policy={"allowed_actions": ["type", "click", "select"]})
+    overlaid = apply_overlay(base, overlay)
+
+    assert set(overlaid.policy.allowed_actions) == {"type", "click", "select"}
+
+
+def test_overlay_on_a_policyless_artifact_stays_policyless():
+    """Backwards compat: a pre-policy artifact overlaid stays governed by
+    the global policy alone, rather than gaining a surprise policy."""
+    base = _base_artifact()
+    assert base.policy is None
+    overlaid = apply_overlay(base, TENANT_B_OVERLAY)
+    assert overlaid.policy is None
