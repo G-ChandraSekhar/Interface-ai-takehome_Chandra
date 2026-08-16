@@ -68,3 +68,16 @@ sensitive_field_names:
   - supervisor_code
   - ssn
   - credentials
+
+# Output field names holding regulated financial/PII data (member balances,
+# names, account numbers, etc.). Unlike sensitive_field_names above (which
+# covers *input* fields like passwords), these are *output* values the
+# capability returns to its caller. The caller gets the real value -- that
+# is the entire point of the capability -- but anything persisted to disk
+# (evidence logs, result.json) is masked. Screenshots are not pixel-redacted
+# (a documented cut, not an oversight -- see REPORT.md); this list covers
+# every place text-based redaction is actually feasible.
+sensitive_output_fields:
+  - savings_balance
+  - member_name
+  - account_number

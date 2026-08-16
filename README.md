@@ -232,6 +232,42 @@ needing to see the discovery run that produced it. Every `type`/`click`
 step should show a locator ladder with 1-2+ real candidates (role/name,
 CSS, text), not just a `"positional"` fallback.
 
+## Safety fix — redacting financial output values, not just credentials
+
+Caught a real gap: the guardrails redactor only masked *input* credential
+fields (password, supervisor code) by field name. It did **not** mask the
+actual banking data a capability returns -- member name, savings balance --
+before persisting to `evidence/*/log.jsonl` and `evidence/*/result.json`,
+both of which get committed to this public repo. Since every record here is
+fictional, nothing real was ever exposed, but the brief explicitly lists
+"redaction of regulated financial data" as a safety evaluation criterion,
+and the system wasn't actually demonstrating that for output *values* --
+only for login credentials.
+
+Fixed by adding `sensitive_output_fields` to `config/allowlist.yaml`
+(`savings_balance`, `member_name`, `account_number`). The rule: the
+in-memory result returned to whoever invoked the capability (the CLI, or a
+calling agent in production) still carries the real value -- that's the
+entire point of the capability existing. What gets **persisted to disk**
+(the per-step log and the final `result.json`) is masked the same way
+credentials already were.
+
+**Documented limitation, not fixed**: the raw balance still appears in the
+full page-text observation captured mid-run (the model has to see the value
+to report it) and in screenshots (no pixel-level redaction). This mirrors a
+limitation the reference architecture also called out explicitly rather
+than silently accepting -- worth stating plainly in `REPORT.md`'s Cuts
+section rather than pretending redaction is complete everywhere.
+
+### Test (needs a browser -- run on your machine, not verifiable in the sandbox)
+
+```bash
+python3 -m pytest tests/test_loop_stub.py::test_sensitive_outputs_are_redacted_on_disk_but_not_in_returned_result -v
+```
+
+Expected: passes, proving the returned result keeps the real values while
+`result.json` and the `log.jsonl` `output_marked` lines are both masked.
+
 ## Repository guide (grows each phase)
 
 - `mock_app/` — the fictional legacy target surface (Flask), tenants, seed data, chaos injection

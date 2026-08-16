@@ -33,6 +33,7 @@ from src.discovery.llm_openai import OpenAIDiscoveryClient
 from src.discovery.prompts import build_system_prompt
 from src.discovery.tools import TOOL_SCHEMAS, execute_tool
 from src.guardrails.engine import PolicyEngine
+from src.guardrails.redact import redact_value
 from src.guardrails.result import PolicyDecision
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -218,10 +219,22 @@ def run_discovery(
 
                 if result.is_mark_output:
                     marked_outputs[result.output_name] = result.output_value
+                    # The in-memory `marked_outputs` above stays raw -- the
+                    # caller of run_discovery (the CLI, ultimately a human or
+                    # calling agent) legitimately needs the real value; that
+                    # IS the capability. What gets written to disk is
+                    # different: evidence and result.json are committed
+                    # artifacts, so any output field named in
+                    # sensitive_output_fields is masked before persistence.
+                    logged_value = (
+                        redact_value(str(result.output_value))
+                        if result.output_name in policy.sensitive_output_fields
+                        else result.output_value
+                    )
                     evidence.log_event(
                         "output_marked",
                         name=result.output_name,
-                        value=result.output_value,
+                        value=logged_value,
                         page_url=page.url,
                     )
 
@@ -249,7 +262,14 @@ def run_discovery(
     final_result = {
         "status": status,
         "message": message,
-        "outputs": marked_outputs,
+        # Persisted result.json is a committed artifact -- redact sensitive
+        # output fields here too, same rule as the per-step log above. The
+        # DiscoveryResult returned from this function (below) still carries
+        # the raw values for the immediate caller.
+        "outputs": {
+            k: (redact_value(str(v)) if k in policy.sensitive_output_fields else v)
+            for k, v in marked_outputs.items()
+        },
         "step_count": step_count,
         "goal": goal,
         "params": params,

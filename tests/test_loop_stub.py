@@ -136,3 +136,51 @@ def test_denied_origin_short_circuits_before_any_steps(mock_app_a):
 
     assert result.status == "failure"
     assert result.step_count == 0
+
+
+def test_sensitive_outputs_are_redacted_on_disk_but_not_in_returned_result(mock_app_a):
+    import json
+
+    script = [
+        ("type", {"ref": "e1", "text": "4521"}),
+        ("click", {"ref": "e2"}),
+        ("click", {"ref": "e1"}),
+        ("mark_output", {"name": "member_name", "value": "Dana Whitfield"}),
+        ("mark_output", {"name": "savings_balance", "value": "2,410.55"}),
+        ("finish", {"summary": "Found both outputs."}),
+    ]
+    stub = StubLLMClient(script)
+
+    result = run_discovery(
+        goal="Look up member 4521 and read their name and regular savings balance.",
+        base_url="http://127.0.0.1:4478",
+        route_prefix="/desk",
+        params={"member_id": "4521"},
+        required_outputs=["member_name", "savings_balance"],
+        headless=True,
+        llm_client=stub,
+        evidence_root=EVIDENCE_TEST_ROOT,
+        run_id="redaction_case",
+    )
+
+    # The caller (this test, standing in for the CLI / a calling agent)
+    # legitimately gets the real values back -- that's the point of the
+    # capability.
+    assert result.outputs == {"member_name": "Dana Whitfield", "savings_balance": "2,410.55"}
+
+    # But what's committed to disk must be masked -- both the per-step log
+    # and the final result.json.
+    result_json = json.loads(Path(result.run_dir, "result.json").read_text())
+    assert result_json["outputs"]["member_name"] != "Dana Whitfield"
+    assert result_json["outputs"]["savings_balance"] != "2,410.55"
+    assert "Dana Whitfield" not in Path(result.run_dir, "result.json").read_text()
+    assert "2,410.55" not in Path(result.run_dir, "result.json").read_text()
+
+    log_text = Path(result.run_dir, "log.jsonl").read_text()
+    output_marked_lines = [
+        line for line in log_text.splitlines() if '"event": "output_marked"' in line
+    ]
+    assert output_marked_lines, "expected at least one output_marked log line"
+    for line in output_marked_lines:
+        assert "Dana Whitfield" not in line
+        assert "2,410.55" not in line
