@@ -1,0 +1,64 @@
+# Default policy configuration.
+#
+# This is the explicit, configurable allowlist required by the assignment
+# brief (Section 3.4): what the agent is permitted to do, at both the
+# discovery stage and replay stage. Both stages call the same policy engine
+# (src/guardrails/engine.py) so behavior is identical whichever path is
+# running.
+
+# Only these origins may be navigated to or acted on. Anything else is
+# blocked outright, no matter what the LLM or a replayed artifact requests.
+allowed_origins:
+  - "http://localhost:4478"   # Tenant A
+  - "http://localhost:4479"   # Tenant B
+
+# Action types the agent is permitted to perform at all. Extending this list
+# is a deliberate policy change, not something a run can talk its way into.
+allowed_action_types:
+  - navigate
+  - click
+  - type
+  - select
+  - read_text
+  - screenshot
+  - wait_for
+
+# Route patterns considered "safe/reversible" -- read-only or non-mutating.
+# These proceed without extra confirmation.
+safe_route_patterns:
+  - "/desk/login"
+  - "/desk"
+  - "/desk/search"
+  - "/desk/member/*"
+  - "/operations/login"
+  - "/operations"
+  - "/operations/search"
+  - "/operations/member/*"
+
+# Route patterns considered mutating (they change state -- e.g. opening an
+# account). These require either an approved artifact or explicit
+# confirmation before they may run unattended. See REPORT.md Section 6.
+mutating_route_patterns:
+  - "/desk/member/*/subaccount/*"
+  - "/operations/member/*/subaccount/*"
+
+# Route patterns considered irreversible/high-risk even among mutating
+# actions. These are never auto-executed -- they always require either a
+# reviewed+approved artifact version or route to human escalation.
+irreversible_route_patterns:
+  - "/desk/member/*/subaccount/confirm"
+  - "/operations/member/*/subaccount/confirm"
+
+# Hard ceilings, independent of what any single action allows.
+limits:
+  max_steps_per_run: 40
+  max_run_duration_seconds: 300
+  max_recovery_attempts_per_step: 2
+
+# Field names that must never appear in artifacts, logs, or evidence in
+# their raw form. The redactor masks these before anything is persisted.
+sensitive_field_names:
+  - password
+  - supervisor_code
+  - ssn
+  - credentials

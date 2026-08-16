@@ -8,7 +8,7 @@ with no model in the decision loop. See `REPORT.md` for the design write-up
 ## Status
 
 - [x] Phase 0 — mock target app (two tenants, chaos injection)
-- [ ] Phase 1 — guardrails / policy engine
+- [x] Phase 1 — guardrails / policy engine
 - [ ] Phase 2 — discovery agent loop
 - [ ] Phase 3 — artifact schema + distiller
 - [ ] Phase 4 — deterministic replay engine
@@ -68,6 +68,37 @@ Business-outcome checks (no chaos needed):
 Tenant B uses a different field label (`Acct Holder No.`), a different route
 prefix (`/operations`), and a different column order on the detail page —
 try member `1002` there to see the same person's record rendered differently.
+
+## Phase 1 — guardrails / policy engine
+
+The policy engine (`src/guardrails/engine.py`) enforces an explicit,
+configurable allowlist (`config/allowlist.yaml`): which origins the agent
+may touch, which action types are permitted, and a three-tier risk
+classification (safe / mutating / irreversible) per route pattern. Both the
+discovery loop and the replay engine will call `check_action()` before every
+single action -- this is the one place the allowlist is enforced, so neither
+path can talk its way around it.
+
+Run the test suite to see it in action:
+
+```bash
+python3 -m pytest tests/test_guardrails.py -v
+```
+
+Expected: 14 tests pass, covering:
+- off-allowlist origins are denied outright
+- disallowed action types are denied
+- safe/read routes are allowed unconditionally
+- mutating routes (e.g. opening a sub-account) require either an approved
+  artifact or explicit confirmation
+- irreversible routes (the final confirm step) require live confirmation
+  *even if* the artifact is approved -- approval of the capability doesn't
+  waive confirmation on its most consequential step
+- step-count and duration budget limits are enforced
+
+`src/guardrails/redact.py` also has a first pass at field-name-based
+redaction (mask by known sensitive field name, not by trying to detect
+sensitive values) -- this will be wired into logging/evidence in Phase 6-8.
 
 ## Repository guide (grows each phase)
 
