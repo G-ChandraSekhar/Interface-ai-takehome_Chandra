@@ -1,0 +1,13 @@
+{
+  "status": "blocked",
+  "message": "Run reached an irreversible action that was blocked and never completed by a human operator (no --handoff route was available). The model's finish summary is disregarded because the goal was not actually completed.",
+  "outputs": {
+    "member_name": "***REDACTED***",
+    "account_type": "Holiday Savings"
+  },
+  "step_count": 9,
+  "goal": "For member 4521, open a new Holiday Savings sub-account with a 25.00 opening deposit, and confirm it. Report the member's name and the account type that was opened.",
+  "params": {
+    "member_id": "4521"
+  }
+}
