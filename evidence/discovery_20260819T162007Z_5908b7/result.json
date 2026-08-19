@@ -1,0 +1,13 @@
+{
+  "status": "success",
+  "message": "Located member 4521 (Dana Whitfield) and read their regular savings balance (2,410.55). All required outputs are marked.",
+  "outputs": {
+    "member_name": "***REDACTED***",
+    "savings_balance": "***REDACTED***"
+  },
+  "step_count": 5,
+  "goal": "Look up member 4521 and read their name and regular savings balance.",
+  "params": {
+    "member_id": "4521"
+  }
+}
