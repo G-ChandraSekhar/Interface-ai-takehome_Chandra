@@ -15,6 +15,10 @@ The loop ends when:
     row -> STUCK (this is where Phase 6 escalation will eventually hook in;
     for Phase 2 we just record it as a stopping condition)
   - the step/duration budget from the policy engine is exceeded -> STUCK
+  - the model reaches an irreversible action that gets blocked, and no
+    --handoff route is configured to resolve it -> BLOCKED (distinct from
+    FAILURE: the model may still call finish() and claim success, but that
+    claim is discarded once a block like this is outstanding)
 """
 
 from __future__ import annotations
@@ -43,7 +47,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 @dataclass
 class DiscoveryResult:
-    status: str  # "success" | "failure" | "stuck"
+    status: str  # "success" | "failure" | "stuck" | "blocked"
     outputs: dict = field(default_factory=dict)
     step_count: int = 0
     run_dir: str = ""
@@ -109,6 +113,17 @@ def run_discovery(
     step_count = 0
     consecutive_text_responses = 0
     start_time = time.time()
+    # Set when an irreversible action is blocked and handoff isn't configured
+    # to resolve it. Discovered by manual testing: without --handoff, the
+    # model sees a "BLOCKED" tool result and is otherwise free to keep going
+    # -- and it would rather call finish() with a plausible-sounding summary
+    # than admit the goal wasn't actually reached (see REPORT.md's note on
+    # gpt-4o-mini's behavior). The tool-level block already prevents the
+    # unsafe click from ever happening; this flag prevents the *reported
+    # status* from lying about that afterward. Once set it stays set for the
+    # rest of the run -- there is no way to resolve an irreversible block
+    # without a human, and none is coming.
+    unresolved_irreversible_block = False
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
@@ -281,20 +296,44 @@ def run_discovery(
                 # as "stuck" (which is exactly what happened before this was
                 # wired up: a live run reached the confirm step, was
                 # correctly blocked, and then wasted turns before quitting).
-                if result.needs_human and handoff_controller is not None:
-                    escalate(result.human_reason or "Irreversible action requires a human.")
-                    messages.append(
-                        {
-                            "role": "user",
-                            "content": (
-                                "A human operator took control and handled the "
-                                "irreversible step themselves, then handed control back. "
-                                "Do NOT attempt that step again -- re-performing an "
-                                "irreversible action would double-execute it. Re-examine "
-                                "the current page and continue from here."
-                            ),
-                        }
-                    )
+                if result.needs_human:
+                    if handoff_controller is not None:
+                        escalate(result.human_reason or "Irreversible action requires a human.")
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "A human operator took control and handled the "
+                                    "irreversible step themselves, then handed control back. "
+                                    "Do NOT attempt that step again -- re-performing an "
+                                    "irreversible action would double-execute it. Re-examine "
+                                    "the current page and continue from here."
+                                ),
+                            }
+                        )
+                    else:
+                        # No handoff route exists to resolve this. The click
+                        # itself was already refused by execute_tool -- this
+                        # only marks the run so a later finish() can't paper
+                        # over the fact that the goal was never completed.
+                        unresolved_irreversible_block = True
+                        evidence.log_event(
+                            "irreversible_block_unresolved",
+                            reason=result.human_reason or result.message,
+                            page_url=page.url,
+                        )
+                        messages.append(
+                            {
+                                "role": "user",
+                                "content": (
+                                    "That action was blocked and cannot be completed in this "
+                                    "run -- no human operator is available to take control. "
+                                    "Do not claim this step succeeded. If nothing else useful "
+                                    "remains to do, call finish and say plainly that the "
+                                    "irreversible step could not be completed."
+                                ),
+                            }
+                        )
 
                 if result.is_mark_output:
                     marked_outputs[result.output_name] = result.output_value
@@ -331,15 +370,30 @@ def run_discovery(
                     finish_message = result.message
 
             if just_finished:
-                missing = [o for o in required_outputs if o not in marked_outputs]
-                if missing:
-                    status = "failure"
-                    message = f"Model called finish but these outputs were never marked: {missing}"
-                    evidence.screenshot(page, "finish_incomplete")
+                if unresolved_irreversible_block:
+                    # The model's own summary is not trustworthy here -- it
+                    # may (and in testing, did) claim success regardless of
+                    # what actually happened. Report a distinct status so a
+                    # caller can't mistake this for a completed run, no
+                    # matter what finish_message says.
+                    status = "blocked"
+                    message = (
+                        "Run reached an irreversible action that was blocked and never "
+                        "completed by a human operator (no --handoff route was "
+                        "available). The model's finish summary is disregarded because "
+                        "the goal was not actually completed."
+                    )
+                    evidence.screenshot(page, "finish_after_unresolved_block")
                 else:
-                    status = "success"
-                    message = finish_message
-                    evidence.screenshot(page, "finish_success")
+                    missing = [o for o in required_outputs if o not in marked_outputs]
+                    if missing:
+                        status = "failure"
+                        message = f"Model called finish but these outputs were never marked: {missing}"
+                        evidence.screenshot(page, "finish_incomplete")
+                    else:
+                        status = "success"
+                        message = finish_message
+                        evidence.screenshot(page, "finish_success")
                 break
 
             step_count += 1

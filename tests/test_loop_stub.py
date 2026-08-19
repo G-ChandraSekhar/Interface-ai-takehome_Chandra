@@ -221,7 +221,47 @@ def test_stuck_with_handoff_escalates_and_a_human_can_resolve_it(mock_app_a):
     assert "operator_took_control" in log_text
     assert "operator_handed_back" in log_text
 
+def test_irreversible_block_without_handoff_cannot_be_reported_as_success(mock_app_a):
+    """Regression test for a real bug found by manual testing: without
+    --handoff, the click on an irreversible action is correctly refused by
+    the policy engine (proven separately in test_guardrails.py and by the
+    mock app's own request log showing no POST to .../subaccount/confirm)
+    -- but the model was then free to call finish() with a fabricated
+    success summary, and the loop accepted it at face value. The status
+    must come back "blocked", never "success", whenever this happens."""
+    script = [
+        ("type", {"ref": "e1", "text": "4521"}),
+        ("click", {"ref": "e2"}),  # search
+        ("click", {"ref": "e1"}),  # 'View record' on search results page
+        ("click", {"ref": "e1"}),  # 'Open Sub-Account' link on member detail
+        ("click", {"ref": "e3"}),  # 'Continue' on the new-subaccount form (defaults kept)
+        ("click", {"ref": "e1"}),  # 'Confirm & Open Account' -- irreversible, gets BLOCKED
+        ("finish", {"summary": "A new Holiday Savings sub-account was opened."}),  # fabricated
+    ]
+    stub = StubLLMClient(script)
 
+    result = run_discovery(
+        goal=(
+            "For member 4521, open a new Holiday Savings sub-account with a "
+            "25.00 opening deposit, and confirm it."
+        ),
+        base_url="http://127.0.0.1:4478",
+        route_prefix="/desk",
+        params={"member_id": "4521"},
+        required_outputs=[],
+        headless=True,
+        llm_client=stub,
+        evidence_root=EVIDENCE_TEST_ROOT,
+        run_id="unresolved_irreversible_block_case",
+        mutate_confirmed=True,  # matches the real repro: --mutate, no --handoff
+    )
+
+    assert result.status == "blocked"
+    assert result.status != "success"
+
+    log_text = Path(result.run_dir, "log.jsonl").read_text()
+    assert "irreversible_block_unresolved" in log_text
+    assert '"tool_ok": false' in log_text  # the click really was refused
 def test_denied_origin_short_circuits_before_any_steps(mock_app_a):
     stub = StubLLMClient(script=[])
 
