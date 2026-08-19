@@ -29,6 +29,7 @@ from src.artifact.store import load_artifact_by_id, save_artifact
 from src.discovery.loop import run_discovery
 from src.replay.engine import replay_artifact
 from src.replay.result import ReplayStatus
+from src.replay.stability import run_stability
 
 TENANT_BASE_URLS = {
     "a": ("http://localhost:4478", "/desk"),
@@ -152,6 +153,45 @@ def cmd_replay(args):
 
     sys.exit(0 if result.status == ReplayStatus.SUCCESS else 1)
 
+def cmd_stability(args):
+    artifacts_dir = Path(args.artifacts_dir)
+    try:
+        artifact = load_artifact_by_id(args.artifact_id, args.version, artifacts_dir)
+    except FileNotFoundError:
+        print(f"No artifact found: {args.artifact_id}@{args.version} in {artifacts_dir}")
+        sys.exit(1)
+
+    params = _parse_kv(args.param or [])
+
+    report = run_stability(
+        artifact,
+        params,
+        args.runs,
+        mutate_confirmed=args.mutate,
+        mock_auth=not args.no_mock_auth,
+        headless=args.headless,
+    )
+
+    print(f"\nStability report for {args.artifact_id}@{args.version} ({args.runs} runs)")
+    print(f"  success_rate:          {report.success_rate:.0%} ({report.successes}/{report.runs})")
+    print(f"  business_outcome_rate: {report.business_outcome_rate:.0%} ({report.business_outcomes}/{report.runs})")
+    print(f"  failure_rate:          {report.failure_rate:.0%} ({report.failures}/{report.runs})")
+    if report.failure_classes:
+        print(f"  failure classes seen:  {report.failure_classes}")
+    print(f"  per-step avg locator tier:   {report.step_avg_tier}")
+    print(f"  per-step worst locator tier: {report.step_worst_tier}")
+
+    if args.update_artifact:
+        updated = artifact.model_copy(update={"stability": report.to_artifact_stability()})
+        saved_path = save_artifact(updated, artifacts_dir)
+        print(f"\nWrote stability report to {saved_path} (artifact.approved left untouched -- see")
+        print("ArtifactStability's docstring: this is a signal for a human reviewer, not a decision.)")
+
+    # Not a pass/fail exit code on purpose -- an operator reviewing
+    # reliability isn't asking a yes/no question the way a single replay
+    # is; the report itself is the deliverable.
+    sys.exit(0)
+
 
 def main():
     load_dotenv()
@@ -214,6 +254,25 @@ def main():
         "--overlay", default=None, help="path to a tenant overlay JSON to patch the base artifact with"
     )
     p_replay.set_defaults(func=cmd_replay)
+
+    p_stability = sub.add_parser(
+        "stability",
+        help="Replay a saved artifact N times and report a reliability/drift signal",
+    )
+    p_stability.add_argument("--artifact-id", required=True)
+    p_stability.add_argument("--version", type=int, default=1)
+    p_stability.add_argument("--param", action="append", help="key=value, repeatable")
+    p_stability.add_argument("--runs", type=int, default=5)
+    p_stability.add_argument("--mutate", action="store_true", help="allow mutating-tier actions")
+    p_stability.add_argument("--no-mock-auth", action="store_true")
+    p_stability.add_argument("--headless", action="store_true")
+    p_stability.add_argument("--artifacts-dir", default="artifacts")
+    p_stability.add_argument(
+        "--update-artifact",
+        action="store_true",
+        help="write the computed report back onto the saved artifact's 'stability' field",
+    )
+    p_stability.set_defaults(func=cmd_stability)
 
     args = parser.parse_args()
     args.func(args)

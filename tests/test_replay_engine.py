@@ -200,6 +200,19 @@ def _search_result_page(member_id, goto="/desk/member/{member_id}"):
     }
 
 
+def _success_site():
+    """A complete, minimal happy-path site for member 4521 -- factored out
+    since several stability tests need a fresh site instance per replay
+    (page_factory), not one shared mutable dict."""
+    site = _base_site()
+    site["/desk/search?member_id=4521"] = _search_result_page("4521")
+    site["/desk/member/4521"] = {
+        "text": "Member Name\tDana Whitfield\nMember ID\t4521\nRegular Savings\t2,410.55\nStatus\tActive",
+        "elements": [],
+    }
+    return site
+
+
 # ---- Tests ------------------------------------------------------------------
 
 
@@ -695,3 +708,84 @@ def test_irreversible_step_escalates_to_a_human_and_resumes(tmp_path):
     log_text = (tmp_path / result.run_dir.split("/")[-1] / "log.jsonl").read_text()
     assert "intervention_created" in log_text
     assert "irreversible_step_performed_by_human" in log_text
+
+
+# ---- Stability scoring -------------------------------------------------
+
+
+def test_run_stability_aggregates_mixed_outcomes_correctly(tmp_path):
+    """3 runs against the SAME params (member_id=4521) -- matching how
+    stability checking is actually used: does this operation succeed
+    reliably. Run 2 simulates a transient business-outcome condition (the
+    record briefly appearing unavailable) while runs 1 and 3 succeed
+    normally -- proves the aggregation math itself (success_rate,
+    business_outcome_rate, per-step tier averaging) against a genuinely
+    mixed sequence, not just that the loop runs without crashing."""
+    from src.replay.stability import run_stability
+
+    call_count = {"n": 0}
+
+    def page_factory():
+        call_count["n"] += 1
+        site = _success_site()
+        if call_count["n"] == 2:
+            site["/desk/member/4521"] = {
+                "text": "No record found for member 4521.",
+                "elements": [],
+            }
+        return FakePage(site, "/desk")
+
+    artifact = make_lookup_artifact(tmp_path)
+    report = run_stability(
+        artifact,
+        {"member_id": "4521"},
+        n=3,
+        page_factory=page_factory,
+        mock_auth=False,
+        evidence_root=tmp_path,
+    )
+
+    assert report.runs == 3
+    assert report.successes == 2
+    assert report.business_outcomes == 1
+    assert report.failures == 0
+    assert report.success_rate == pytest.approx(2 / 3)
+    assert report.business_outcome_rate == pytest.approx(1 / 3)
+    assert "s1" in report.step_avg_tier
+    assert report.step_avg_tier["s1"] >= 1.0
+
+
+def test_stability_update_artifact_persists_report_without_touching_approved(tmp_path):
+    """--update-artifact writes the computed report onto the saved
+    artifact's `stability` field, but must never flip `approved` -- that
+    stays a human reviewer's out-of-band decision (see ArtifactStability's
+    docstring in schema.py)."""
+    from src.artifact.store import save_artifact
+    from src.replay.stability import run_stability
+
+    artifact = make_lookup_artifact(tmp_path)
+    assert artifact.stability is None
+    assert artifact.approved is False
+
+    artifacts_dir = tmp_path / "artifacts"
+    save_artifact(artifact, artifacts_dir)
+
+    report = run_stability(
+        artifact,
+        {"member_id": "4521"},
+        n=2,
+        page_factory=lambda: FakePage(_success_site(), "/desk"),
+        mock_auth=False,
+        evidence_root=tmp_path,
+    )
+
+    updated = artifact.model_copy(update={"stability": report.to_artifact_stability()})
+    save_artifact(updated, artifacts_dir)
+
+    from src.artifact.store import load_artifact_by_id
+
+    reloaded = load_artifact_by_id(artifact.artifact_id, artifact.version, artifacts_dir)
+    assert reloaded.stability is not None
+    assert reloaded.stability.sample_size == 2
+    assert reloaded.stability.success_rate == 1.0
+    assert reloaded.approved is False  # unchanged

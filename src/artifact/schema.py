@@ -160,6 +160,31 @@ class ArtifactPolicy(BaseModel):
         Literal["navigate", "click", "type", "select", "wait_for", "read_text"]
     ]
 
+class ArtifactStability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Written by `python3 -m src.cli stability ... --update-artifact`
+    # (src/replay/stability.py's run_stability()) -- a decision-support
+    # signal for whoever is deciding whether to flip Artifact.approved,
+    # never something that flips it automatically. `approved` is
+    # deliberately a human reviewer's out-of-band decision everywhere else
+    # in this codebase (see guardrails/engine.py, capability_api/server.py)
+    # -- a computed score informing that decision is not the same thing as
+    # a script making it, and conflating the two would quietly remove the
+    # human from a loop this system otherwise goes out of its way to keep
+    # them in.
+    sample_size: int
+    success_rate: float = Field(ge=0.0, le=1.0)
+    business_outcome_rate: float = Field(ge=0.0, le=1.0)
+    failure_rate: float = Field(ge=0.0, le=1.0)
+    # step_id -> observed values across the sample. A step whose average
+    # tier is climbing toward 2+ is drifting toward eventual failure even
+    # while every individual sampled run still "passes" -- this is the
+    # earliest available warning signal, well before success_rate itself
+    # would show any decline.
+    step_avg_tier: dict[str, float] = Field(default_factory=dict)
+    step_worst_tier: dict[str, int] = Field(default_factory=dict)
+    computed_at: datetime
 
 class Artifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -185,6 +210,9 @@ class Artifact(BaseModel):
     # letting a new vendor app's error copy be declared and reviewed here
     # rather than requiring a code change to src/replay/detectors.py.
     detectors: Optional[ArtifactDetectors] = None
+    # Optional, computed rather than authored -- see ArtifactStability's
+    # own docstring for why this never touches `approved` on its own.
+    stability: Optional[ArtifactStability] = None
     created_from_run_id: str
     created_at: datetime
     approved: bool = False
