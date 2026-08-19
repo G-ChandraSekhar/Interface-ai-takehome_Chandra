@@ -277,6 +277,72 @@ def test_business_outcome_permission_denied(tmp_path):
     assert result.status == ReplayStatus.BUSINESS_OUTCOME
     assert result.outcome_code == "PERMISSION_DENIED"
 
+def test_artifact_declared_detector_pattern_overrides_hardcoded_default(tmp_path):
+    """Proves the actual point of this refactor: a business-outcome pattern
+    declared ON THE ARTIFACT is honored, using copy that does NOT match any
+    of replay/detectors.py's hardcoded default markers. Stands in for what a
+    real different-vendor app's "not found" copy would look like -- this
+    mock app's two tenants happen to share identical templates (see
+    tenants.py's own docstring), so there's no second real vendor's copy in
+    this repo to test against; this is a synthetic but honest proof that
+    the mechanism itself works, not evidence of a second live vendor app."""
+    from src.artifact.schema import ArtifactDetectors, DetectorPattern
+
+    artifact = make_lookup_artifact(tmp_path).model_copy(
+        update={
+            "detectors": ArtifactDetectors(
+                business_outcomes=[
+                    DetectorPattern(
+                        marker="Account record could not be located",
+                        code="ACCOUNT_NOT_FOUND",
+                        message="No matching account exists for the supplied identifier.",
+                    )
+                ],
+            )
+        }
+    )
+    site = _base_site()
+    site["/desk/search?member_id=9999"] = _search_result_page("9999")
+    site["/desk/member/9999"] = {
+        # Deliberately does NOT contain "No record found for" -- the
+        # hardcoded default marker -- only the artifact-declared one.
+        "text": "Account record could not be located for the given search criteria.",
+        "elements": [],
+    }
+    page = FakePage(site, "/desk")
+
+    result = replay_artifact(
+        artifact, {"member_id": "9999"}, page=page, mock_auth=False, evidence_root=tmp_path
+    )
+
+    assert result.status == ReplayStatus.BUSINESS_OUTCOME
+    assert result.outcome_code == "ACCOUNT_NOT_FOUND"
+
+
+def test_without_declared_patterns_a_different_vendors_copy_is_unclassified(tmp_path):
+    """The other half of the proof: the SAME different-vendor copy, against
+    an artifact with no declared detectors (detectors=None, e.g. one
+    distilled before this field existed), falls through to the hardcoded
+    defaults and is NOT recognized as a business outcome -- it's exactly
+    the gap REPORT.md's Cuts section named. This is what the previous
+    test's artifact-declared pattern fixes."""
+    artifact = make_lookup_artifact(tmp_path)
+    assert artifact.detectors is None  # sanity check on the fixture itself
+
+    site = _base_site()
+    site["/desk/search?member_id=9999"] = _search_result_page("9999")
+    site["/desk/member/9999"] = {
+        "text": "Account record could not be located for the given search criteria.",
+        "elements": [],
+    }
+    page = FakePage(site, "/desk")
+
+    result = replay_artifact(
+        artifact, {"member_id": "9999"}, page=page, mock_auth=False, evidence_root=tmp_path
+    )
+
+    assert result.status != ReplayStatus.BUSINESS_OUTCOME
+
 
 def test_hard_failure_app_error(tmp_path):
     artifact = make_lookup_artifact(tmp_path)

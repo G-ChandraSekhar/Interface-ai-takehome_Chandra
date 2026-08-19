@@ -24,18 +24,58 @@ from urllib.parse import urlparse
 
 from src.artifact.schema import (
     Artifact,
+    ArtifactDetectors,
     ArtifactPolicy,
     ArtifactStep,
     Checkpoint,
+    DetectorPattern,
     ExtractionRule,
     LocatorCandidate,
     ParamSpec,
     TargetSpec,
 )
+from src.replay.detectors import (
+    _DEFAULT_BUSINESS_OUTCOME_MARKERS,
+    _DEFAULT_HARD_FAILURE_MARKERS,
+    _DEFAULT_RECOVERABLE_MARKERS,
+)
 
 _TENANT_BY_ROUTE_PREFIX = {"/desk": "a", "/operations": "b"}
 
 _ACTIONABLE_TOOLS = {"click", "type", "select"}
+
+
+def _default_detectors_for_tenant(tenant: str) -> ArtifactDetectors:
+    """Snapshot replay/detectors.py's built-in defaults into an explicit,
+    reviewable artifact field at distill time.
+
+    Discovery never observes error states -- distill_run() only ever runs
+    against a log whose run_finished.status == "success" (enforced below),
+    so there is nothing to *capture* the way locator candidates or
+    extraction labels are captured from what the run actually did. What we
+    CAN do is make the currently-implicit, code-level defaults explicit on
+    every new artifact, so a reviewer approving this artifact is also
+    reviewing what counts as e.g. "not found" for it, and so a different
+    vendor app's copy can be substituted here later without anyone editing
+    detectors.py. Both current tenants render identical error copy (they
+    share templates -- see tenants.py's own docstring: "the *same*
+    underlying vendor product"), so this returns the same set for either
+    tenant today; a real second vendor app would get its own entry here.
+    """
+    return ArtifactDetectors(
+        business_outcomes=[
+            DetectorPattern(marker=marker, code=code, message=message)
+            for marker, code, message in _DEFAULT_BUSINESS_OUTCOME_MARKERS
+        ],
+        recoverable=[
+            DetectorPattern(marker=marker, code=condition, message="")
+            for marker, condition in _DEFAULT_RECOVERABLE_MARKERS
+        ],
+        hard_failures=[
+            DetectorPattern(marker=marker, code=failure_class.value, message="")
+            for marker, failure_class in _DEFAULT_HARD_FAILURE_MARKERS
+        ],
+    )
 
 # Fixed per-strategy priors, not measured probabilities -- they encode how
 # tightly each locator kind is coupled to things that change. An accessible
@@ -241,6 +281,7 @@ def distill_run(
             allowed_origins=[base_url],
             allowed_actions=sorted({step.action for step in steps}),
         ),
+        detectors=_default_detectors_for_tenant(tenant),
         created_from_run_id=created_from_run_id,
         created_at=run_started["ts"],
         approved=False,

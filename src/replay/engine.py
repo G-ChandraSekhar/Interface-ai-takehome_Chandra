@@ -158,6 +158,12 @@ def replay_artifact(
     owns_browser = page is None
     browser = None
     playwright_cm = None
+    # Artifact-declared detector patterns, falling back to None (which
+    # makes detect_*() below use their built-in defaults) when this
+    # artifact predates the detectors field or simply declares none.
+    business_patterns = artifact.detectors.business_outcomes if artifact.detectors else None
+    recoverable_patterns = artifact.detectors.recoverable if artifact.detectors else None
+    hard_failure_patterns = artifact.detectors.hard_failures if artifact.detectors else None
     # Defined before the try so the finally block can always reference it,
     # even if browser setup raises before it would otherwise be assigned.
     handoff_controller = None
@@ -191,7 +197,7 @@ def replay_artifact(
                     attempts=resolution.attempts_as_dicts(),
                 )
                 page_text = _page_text(page)
-                business = detect_business_outcome(page_text)
+                business = detect_business_outcome(page_text, business_patterns)
                 if business:
                     code, message = business
                     evidence.log_event("business_outcome", code=code, step_id=step.step_id)
@@ -207,7 +213,7 @@ def replay_artifact(
                         page,
                         policy,
                     )
-                hard = detect_hard_failure(page_text)
+                hard = detect_hard_failure(page_text, hard_failure_patterns)
                 if hard:
                     return _finish(
                         evidence,
@@ -393,7 +399,7 @@ def replay_artifact(
             page_text = _page_text(page)
             recovery_applied = False
 
-            hard = detect_hard_failure(page_text)
+            hard = detect_hard_failure(page_text, hard_failure_patterns)
             if hard:
                 return _finish(
                     evidence,
@@ -412,7 +418,7 @@ def replay_artifact(
                     policy,
                 )
 
-            business = detect_business_outcome(page_text)
+            business = detect_business_outcome(page_text, business_patterns)
             if business:
                 code, message = business
                 evidence.log_event("business_outcome", code=code, step_id=step.step_id)
@@ -429,7 +435,7 @@ def replay_artifact(
                     policy,
                 )
 
-            recoverable = detect_recoverable(page_text)
+            recoverable = detect_recoverable(page_text, recoverable_patterns)
             if recoverable:
                 attempts = recovery_attempts.get(step.step_id, 0)
                 if attempts >= policy.max_recovery_attempts_per_step:

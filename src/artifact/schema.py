@@ -111,6 +111,39 @@ class ExtractionRule(BaseModel):
     label: str
 
 
+class DetectorPattern(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Plain substring match against page text, deliberately -- same
+    # reasoning as ExtractionRule.label: cheap, legible to a human reviewer,
+    # and it's exactly the signal digest.py already showed the model during
+    # discovery, so replay classifies on the same evidence a human approving
+    # this artifact could read for themselves.
+    marker: str
+    # For business_outcomes: any string, becomes ReplayResult.outcome_code.
+    # For recoverable: any string, becomes the recovery condition name.
+    # For hard_failures: MUST match one of FailureClass's string values
+    # (src/replay/result.py -- e.g. "app_error", "policy_denied") since
+    # replay constructs FailureClass(code) directly from it.
+    code: str
+    message: str = ""  # human-facing message; unused for recoverable/hard_failure
+
+
+class ArtifactDetectors(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Declared per-artifact rather than hardcoded in replay/detectors.py --
+    # this is what lets the same three-way result contract (business
+    # outcome / recoverable / hard failure) generalize across vendor apps
+    # with different copy, without editing Python for every new tenant.
+    # A reviewer approving this artifact is thereby also approving what
+    # counts as e.g. "not found" for it -- the same review boundary
+    # ArtifactPolicy already draws for permissions.
+    business_outcomes: list[DetectorPattern] = Field(default_factory=list)
+    recoverable: list[DetectorPattern] = Field(default_factory=list)
+    hard_failures: list[DetectorPattern] = Field(default_factory=list)
+
+
 class ArtifactPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -146,6 +179,12 @@ class Artifact(BaseModel):
     # Optional so artifacts distilled before this field existed still load;
     # when present, replay enforces it on top of the global policy.
     policy: Optional[ArtifactPolicy] = None
+    # Optional for the same reason: artifacts distilled before this existed
+    # fall back to replay/detectors.py's hardcoded defaults (Tenant A's
+    # actual copy). When present, these patterns are used instead --
+    # letting a new vendor app's error copy be declared and reviewed here
+    # rather than requiring a code change to src/replay/detectors.py.
+    detectors: Optional[ArtifactDetectors] = None
     created_from_run_id: str
     created_at: datetime
     approved: bool = False
