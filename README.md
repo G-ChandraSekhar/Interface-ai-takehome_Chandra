@@ -4,6 +4,22 @@ An LLM discovers a workflow against a live legacy banking UI, distills the run
 into a typed capability artifact, and replays that artifact deterministically
 with no model in the decision loop.
 
+> **Reviewing this?** Three files, in order:
+>
+> | | |
+> |---|---|
+> | **[`docs/ADAPTATION.md`](docs/ADAPTATION.md)** | the write-up — 2 pages, what adapting took and what I cut |
+> | **[the demo path](#demo-path--meridian-core)** below | exact commands, runs without an API key |
+> | **`evidence/`** | every run committed: successes, business outcomes, failures, escalations |
+>
+> Everything after *[The original take-home](#the-original-take-home)* is the
+> prior project's build log, kept because the mock app is still a live target.
+> `docs/ADAPTATION-LOG.md` is the full development log behind the write-up —
+> depth, not a deliverable.
+>
+> `python3 scripts/acceptance.py` checks this submission against the brief
+> item by item (55 checks). `python3 -m pytest tests/ -q` → 229 passing.
+
 The system now runs against **two** targets: MERIDIAN CORE
 ([web-sample.interface-hiring.com](https://web-sample.interface-hiring.com/)),
 the adaptation target, and the original self-built mock app it was first
@@ -23,7 +39,7 @@ the API, and the dashboard do not.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && python3 -m playwright install chromium
-python3 -m pytest tests/ -q                      # 215 passing
+python3 -m pytest tests/ -q                      # 229 passing
 ```
 
 Credentials default to the demo operators MERIDIAN prints on its own sign-on
@@ -188,7 +204,7 @@ python3 -m src.cli distill --run-dir evidence/discovery_<run_id> \
 ```
 
 Two constraints the distiller enforces, both learned the hard way and both
-documented in `docs/ADAPTATION.md`: every output must be readable from the
+documented in `docs/ADAPTATION-LOG.md`: every output must be readable from the
 single page the capability ends on, and every declared input must be used by
 some step — an artifact advertising a parameter nothing consumes would accept a
 caller's value and silently ignore it.
@@ -225,7 +241,7 @@ from a conversation. That contrast is the risk model in one screen.
 The confirmation is an HMAC-signed token over the exact parameters rather than
 the model noticing you agreed — the model never sees the token, and the
 parameters are read back out of it, so altering one digit of the phone number
-invalidates the signature. `scripts/probe_chat.py` exercises nine standards
+invalidates the signature. `scripts/probe_chat.py` exercises fourteen standards
 against a running instance, including whether a refusal gets routed around and
 whether claimed authority softens anything.
 
@@ -270,7 +286,7 @@ python3 scripts/audit_dashboard.py --target meridian
 
 Everything below is the phase-by-phase build log for the self-built mock app
 this system was first developed against. It is still fully runnable (`--tenant a`
-/ `--tenant b`) and its tests are part of the 172 above — the mock is now just
+/ `--tenant b`) and its tests are part of the 229 above — the mock is now just
 another entry in `config/targets/`, which is what keeps the claim that adapting
 is a configuration exercise honest rather than asserted.
 
@@ -280,7 +296,7 @@ is a configuration exercise honest rather than asserted.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && python3 -m playwright install chromium
-python3 -m pytest tests/ -q                      # 215 passing
+python3 -m pytest tests/ -q                      # 229 passing
 
 cp .env.example .env                             # add OPENAI_API_KEY for discovery only
 ```
@@ -333,8 +349,9 @@ to what it demonstrates.
 - [x] Phase 6 — human escalation & handoff (discovery-stuck and budget-exceeded paths)
 - [x] Phase 7 — tenant overlay (multi-tenant reuse)
 - [x] Phase 8 — evidence + REPORT.md
-- [x] Adaptation — MERIDIAN CORE: six capabilities, capability API, dashboard
-      (see the demo path at the top of this file and `docs/ADAPTATION.md`)
+- [x] Adaptation — MERIDIAN CORE: seven capabilities, capability API, chatbot,
+      dashboard (see the demo path at the top of this file, and
+      `docs/ADAPTATION.md` for the write-up)
 
 ## Requirements
 

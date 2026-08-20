@@ -205,6 +205,36 @@ def main():
     check("6.1", "README covers the chatbot", "/chat" in readme)
     check("6.1", "README covers the dashboard", "4600" in readme)
 
+    # README numbers drift silently: nothing fails when it claims 215 tests and
+    # there are 229, but a reviewer reading a stale figure loses confidence in
+    # every other figure on the page.
+    import subprocess
+
+    try:
+        out = subprocess.run(
+            [sys.executable, "-m", "pytest", "tests/", "-q", "--co"],
+            capture_output=True, text=True, cwd=REPO, timeout=180,
+        ).stdout
+        collected = [l for l in out.splitlines() if "test" in l and "collected" in l]
+        actual = collected[0].split()[0] if collected else None
+    except Exception:
+        actual = None
+
+    if actual:
+        check("6.1", "README's test count is current",
+              actual in readme,
+              "suite collects " + actual + " tests")
+
+    for stale, why in [
+        ("six capabilities", "seven now"),
+        ("nine standards", "fourteen probes now"),
+    ]:
+        check("6.1", "README free of: '" + stale + "'", stale not in readme, why)
+
+    for link in ("docs/ADAPTATION.md", "docs/ADAPTATION-LOG.md"):
+        if link in readme:
+            check("6.1", "README link resolves: " + link, (REPO / link).exists())
+
     doc = REPO / "docs/ADAPTATION.md"
     check("6.2", "write-up exists", doc.exists())
     if doc.exists():
