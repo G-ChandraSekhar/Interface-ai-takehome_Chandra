@@ -433,6 +433,64 @@ a string would be absurd; hand-editing six JSON files is worse. The script is
 explicit and `--dry-run`-able, and touches nothing but the detectors block —
 replay must never silently change the classification a reviewer approved.
 
+### 4.15 A checkpoint cannot express "wherever the search landed"
+
+`member_inquiry@1` declared `search_by` as an input that no step used, so
+search-by-last-name — which §2.1 asks for — was unreachable. Re-recording with
+a goal that forces the dropdown produced `member_inquiry@2`, where both
+`search_by` and `query` bind to real steps.
+
+It also produced a limitation the take-home never hit.
+
+The checkpoint is a URL pattern rendered against the invocation's parameters.
+That works whenever the destination is derivable from the inputs: search by
+member number and the flow ends at `/members/{member_id}`, which is exactly the
+number the caller passed. **Search by name breaks the assumption.** The caller
+supplies a surname; the member number only exists once the search resolves. So
+the distiller has nothing to parameterise and freezes the literal it observed:
+
+```
+checkpoint: /members/101555        # Grace Hopper, the run it was recorded from
+```
+
+Replaying `@2` with `query=Turing` extracts Turing's real name and address,
+every step resolving at tier 1, and then fails `checkpoint_not_met` —
+`/members/100987` is not `/members/101555`. **The checkpoint is behaving
+correctly.** The artifact is asserting something it has no business asserting.
+
+**Considered and rejected: a wildcard,** `/members/*`. It borrows notation the
+system already uses — `PolicyEngine` matches route patterns with `fnmatch` —
+but for the opposite purpose. Policy wildcards a **category**: any member's
+confirm route is irreversible, and which member is deliberately irrelevant. A
+checkpoint asks about an **instance**: did *this run* arrive where it claims?
+Wildcarding the identity there deletes the only claim being made.
+
+Measuring it made the case worse. `fnmatch`'s `*` crosses `/`, so `/members/*`
+also passes `/members/100987/transfer` — a run that died halfway through a
+transfer form:
+
+| Ended on | `/members/*` | exact |
+|---|---|---|
+| main menu / search results / sign-on | caught | caught |
+| **mid-flow, the transfer form** | **passed** | caught |
+| **a different member's record** | **passed** | caught |
+
+It does not keep a shape assertion. It asserts "somewhere under `/members/`",
+which is most of the flow.
+
+**Shipped as-is, limitation documented.** `member_inquiry@1` covers
+search-by-number and works; `@2` covers search-by-name and is pinned to the
+surname it was recorded with. Nothing regressed.
+
+**The real fix is one this repo already named.** `REPORT.md`'s Cuts section has
+said since the take-home that "the checkpoint is a URL pattern only... a
+content assertion would be stronger." This is the case that forces it: a
+checkpoint gaining an optional content claim alongside its URL — the extracted
+`member_name` must contain `query` — asserts the identity in terms the caller
+*did* supply. That is the same move `ExtractionRule` already makes: assert the
+shape, parameterise the identity. The wildcard does the first half and abandons
+the second, which is why it looks consistent and is not.
+
 ---
 
 ## 5. How the work unfolded
@@ -460,6 +518,7 @@ criterion.
 | 14 | `place_account_hold` | Extraction refused, then an unparameterised artifact caught; `@2` clean |
 | 15 | Unused-input refusal; fault injection | Recovery demonstrated live |
 | 16 | Replaying the two capabilities that had only been recorded | Two over-fitted detector markers found; `place_account_hold` had never been replayable |
+| 17 | Re-recording `member_inquiry` to bind `search_by` | Dead parameter closed; exposed that a URL checkpoint cannot express a search-by-name destination |
 
 Reconnaissance before code was the highest-leverage decision. Three scripts, no
 guesses: every design choice after step 3 was made against observed behaviour
@@ -522,10 +581,11 @@ Per §5 of the brief, stated rather than discovered:
 
 **Known defects, left in place:**
 
-- `search_by` is a dead parameter on `member_inquiry` — advertised in the
-  contract, referenced by no step, so search-by-last-name is unreachable
-  despite §2.1 asking for it. Same root cause as §4.10. Note this artifact
-  could no longer be *produced* under §4.11's check; it predates it.
+- `member_inquiry@2` reaches search-by-last-name, but its checkpoint is
+  pinned to the member the recording landed on, so it only replays for that
+  surname (§4.15). `@1` covers search-by-number and is unaffected. Note `@1`
+  could no longer be *produced* under §4.11's check — it predates it, and
+  `@2` is what compliance with that rule looks like.
 - `s2`'s ladder is single-candidate (`css_name_attr` only) — no fallback if
   that attribute changes. `label_proximity` did not fire on the search form's
   `Value:` cell; worth understanding rather than leaving unremarked.
@@ -562,8 +622,11 @@ the artifact's contract, not just the code's logic.
 
 In priority order:
 
-1. Re-record `member_inquiry` with the search-by dropdown set explicitly — the
-   last remaining dead parameter.
+1. **A content assertion on the checkpoint** — the fix §4.15 calls for, and
+   the one `REPORT.md` has named as a limitation since the take-home. An
+   optional content claim alongside the URL pattern, so a capability whose
+   destination is not derivable from its inputs can still assert it arrived
+   at the right record.
 2. A per-run recovery ceiling, so an unclearable fault reports
    `session_recovery_exhausted` rather than `locator_not_found`.
 3. More structural checks on the artifact contract, in the spirit of §4.11 —

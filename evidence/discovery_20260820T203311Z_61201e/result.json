@@ -1,0 +1,14 @@
+{
+  "status": "success",
+  "message": "Located the member record for Hopper, Grace. The member's full name and mailing address ('1 Main St') have been reported as required.",
+  "outputs": {
+    "member_name": "***REDACTED***",
+    "address": "1 Main St"
+  },
+  "step_count": 7,
+  "goal": "Using Member Inquiry, explicitly set the 'Search by' dropdown to Last Name even though another value already appears selected, then type Hopper as the search value and search. Open the matching member's record. From the member record page, report the member's full name and the mailing address shown there.",
+  "params": {
+    "query": "Hopper",
+    "search_by": "name"
+  }
+}
