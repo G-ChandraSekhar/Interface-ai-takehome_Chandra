@@ -404,6 +404,28 @@ def run_discovery(
                     extraction_rule = locate_value(
                         observation.page_text, str(result.output_value)
                     )
+                    # Which invocation parameters this output's value contains.
+                    #
+                    # Computed HERE, on the raw value, because the distiller
+                    # cannot: outputs named in sensitive_output_fields are
+                    # masked before anything reaches disk, so by the time
+                    # distill.py reads the log, member_name is
+                    # "***REDACTED***" and no substring of it means anything.
+                    #
+                    # Only the parameter NAMES are recorded -- the fact that
+                    # member_name contained the caller's `query`, not what
+                    # either of them was. That is enough for the distiller to
+                    # derive a checkpoint assertion, and it discloses nothing
+                    # redaction was protecting.
+                    raw_value = str(result.output_value)
+                    contains_params = [
+                        pname
+                        for pname, pval in params.items()
+                        if pval
+                        and len(str(pval)) >= 2
+                        and str(pval).lower() in raw_value.lower()
+                        and str(pval) != raw_value
+                    ]
                     # The in-memory `marked_outputs` above stays raw -- the
                     # caller of run_discovery (the CLI, ultimately a human or
                     # calling agent) legitimately needs the real value; that
@@ -423,6 +445,7 @@ def run_discovery(
                         page_url=page.url,
                         extraction_label=(extraction_rule or {}).get("label"),
                         extraction_rule=extraction_rule,
+                        contains_params=contains_params,
                     )
 
                 if result.is_finish:

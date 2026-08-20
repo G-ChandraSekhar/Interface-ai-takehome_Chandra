@@ -90,11 +90,41 @@ class ArtifactStep(BaseModel):
     description: str = ""
 
 
+class CheckpointAssertion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # "the value extracted for `output` must contain this invocation's value
+    # for `contains_input`" -- e.g. member_name must contain the surname the
+    # caller searched for.
+    #
+    # Exists because a URL pattern can only assert a destination the caller's
+    # own parameters can predict. Search by member number ends at
+    # /members/{member_id}, which IS the input. Search by last name ends
+    # wherever the search resolved, which the caller does not know and cannot
+    # be asked for. Without a content claim the artifact either freezes one
+    # member's URL (works for one surname) or wildcards it away (asserts
+    # nothing about identity). This asserts identity in the terms the caller
+    # actually supplied.
+    output: str
+    contains_input: Optional[str] = None
+    contains_literal: Optional[str] = None
+    case_sensitive: bool = False
+
+
 class Checkpoint(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     description: str
-    url_pattern: str  # path with param values replaced by {param_name}
+    # Path with param values replaced by {param_name}. A segment the
+    # distiller could not bind to any parameter becomes {*}, which matches
+    # exactly one segment -- NOT fnmatch's `*`, which crosses `/` and would
+    # let a run that died mid-flow on /members/100987/transfer satisfy a
+    # checkpoint of /members/*.
+    #
+    # A {*} segment weakens the URL claim to a shape, so anything that needs
+    # to be said about WHICH record was reached is said in `assertions`.
+    url_pattern: str
+    assertions: list[CheckpointAssertion] = Field(default_factory=list)
 
 
 class ExtractionRule(BaseModel):

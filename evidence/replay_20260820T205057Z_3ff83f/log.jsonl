@@ -1,0 +1,3 @@
+{"ts": "2026-08-20T20:50:57.312558+00:00", "event": "replay_started", "artifact_id": "member_inquiry", "version": 3, "params": {"query": "Turing", "search_by": "name"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-20T20:50:57.952700+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-20T20:50:58.258243+00:00", "event": "replay_finished", "status": "success"}

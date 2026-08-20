@@ -38,7 +38,7 @@ from src.escalation.controller import HandoffController
 from src.guardrails.engine import PolicyEngine
 from src.guardrails.redact import redact_value
 from src.guardrails.result import PolicyDecision, RiskTier
-from src.replay.checkpoint import checkpoint_met
+from src.replay.checkpoint import assertions_met, checkpoint_met
 from src.replay.detectors import (
     detect_business_outcome,
     detect_hard_failure,
@@ -824,6 +824,34 @@ def _execute_replay(
                     policy,
                 )
             outputs[name] = value
+
+        # Content assertions run last, because they are stated in terms of the
+        # extracted outputs. The URL pattern has already confirmed the SHAPE of
+        # where we landed; these confirm WHICH record it was, for capabilities
+        # whose destination the caller's parameters cannot predict. Reported as
+        # CHECKPOINT_NOT_MET rather than a new class -- it is the same
+        # question ("did we end where this capability claims?"), answered from
+        # the page's content instead of its URL.
+        assertions_ok, assertion_reason = assertions_met(
+            getattr(artifact.checkpoint, "assertions", None), outputs, params
+        )
+        if not assertions_ok:
+            return _finish(
+                evidence,
+                ReplayResult(
+                    status=ReplayStatus.FAILURE,
+                    failure=FailureDetail(
+                        step_class=FailureClass.CHECKPOINT_NOT_MET,
+                        step_id=None,
+                        expected=artifact.checkpoint.description,
+                        observed=assertion_reason,
+                    ),
+                    step_telemetry=step_telemetry,
+                    run_dir=str(run_dir),
+                ),
+                page,
+                policy,
+            )
 
         return _finish(
             evidence,

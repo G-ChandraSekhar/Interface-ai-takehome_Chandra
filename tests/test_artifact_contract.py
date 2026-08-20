@@ -243,3 +243,143 @@ def test_a_param_used_only_by_the_checkpoint_is_consumed():
         required_outputs=["member_name"],
     )
     assert artifact.checkpoint.url_pattern == "/members/{member_id}"
+
+
+# ---------------------------------------------------------------------------
+# Checkpoints for capabilities whose destination the caller cannot predict
+# ---------------------------------------------------------------------------
+#
+# The URL pattern works whenever the destination follows from the inputs:
+# search for member 100987 and the flow ends at /members/100987. Search by
+# LAST NAME and it ends wherever the search resolved -- a number the caller
+# does not know. The distiller has nothing to bind, so before this it froze
+# the literal and the artifact replayed for exactly one surname.
+
+
+from src.artifact.distill import _derive_assertions, _looks_like_an_identifier, _url_pattern_from
+from src.replay.checkpoint import assertions_met, checkpoint_met
+from src.artifact.schema import CheckpointAssertion
+
+
+def test_a_predictable_destination_is_still_bound_to_its_param():
+    """Unchanged for every capability that was already fine."""
+    assert _url_pattern_from(
+        "https://h/members/100234/transfer/post", {"member_id": "100234"}
+    ) == "/members/{member_id}/transfer/post"
+
+
+def test_an_unpredictable_destination_becomes_a_shape():
+    """Search-by-name: the member number matches no supplied parameter."""
+    assert _url_pattern_from(
+        "https://h/members/101555", {"query": "Hopper", "search_by": "name"}
+    ) == "/members/{*}"
+
+
+@pytest.mark.parametrize(
+    "segment,is_id",
+    [("100234", True), ("members", False), ("transfer", False),
+     ("open-share", False), ("review", False), ("100234-S0070", False)],
+)
+def test_route_words_are_not_mistaken_for_record_ids(segment, is_id):
+    """A false positive here silently weakens a checkpoint that was correct."""
+    assert _looks_like_an_identifier(segment) is is_id
+
+
+def test_the_wildcard_matches_one_segment_not_the_rest_of_the_flow():
+    """fnmatch's '*' crosses '/', which would let a run that died on the
+    transfer form satisfy a checkpoint of /members/*. Measured, then rejected."""
+    assert checkpoint_met("/members/{*}", {}, "https://h/members/100987")
+    assert not checkpoint_met("/members/{*}", {}, "https://h/members/100987/transfer")
+    assert not checkpoint_met("/members/{*}", {}, "https://h/menu")
+
+
+def test_identity_is_carried_by_a_content_assertion_instead():
+    """What the URL gave up, the extracted output asserts."""
+    a = [CheckpointAssertion(output="member_name", contains_input="query")]
+
+    ok, _ = assertions_met(a, {"member_name": "Hopper, Grace"}, {"query": "Hopper"})
+    assert ok
+
+    ok, reason = assertions_met(a, {"member_name": "Turing, Alan"}, {"query": "Hopper"})
+    assert not ok and "Hopper" in reason
+
+
+def test_an_assertion_is_derived_only_when_it_was_true_of_the_run():
+    """Nothing invented: a claim the recorded run would itself have failed is
+    a bug being written into the contract, not a property of the capability."""
+    derived = _derive_assertions(
+        {"member_name": "Hopper, Grace", "address": "1 Main St"},
+        {"query": "Hopper", "search_by": "name"},
+    )
+    assert [(d.output, d.contains_input) for d in derived] == [("member_name", "query")]
+
+    assert _derive_assertions(
+        {"member_name": "Hopper, Grace"}, {"query": "Turing"}
+    ) == []
+
+
+def test_a_missing_output_or_param_fails_rather_than_skipping():
+    """An assertion that quietly does not run is worse than none, because the
+    artifact still advertises that it makes it."""
+    a = [CheckpointAssertion(output="member_name", contains_input="query")]
+    ok, reason = assertions_met(a, {}, {"query": "Hopper"})
+    assert not ok and "not extracted" in reason
+    ok, reason = assertions_met(a, {"member_name": "Hopper, Grace"}, {})
+    assert not ok and "not supplied" in reason
+
+
+def test_checkpoints_without_a_wildcard_are_untouched():
+    """Every artifact recorded before this change compares exactly as before."""
+    assert checkpoint_met("/members/{member_id}", {"member_id": "100987"},
+                          "https://h/members/100987")
+    assert not checkpoint_met("/members/{member_id}", {"member_id": "100987"},
+                              "https://h/members/103001")
+
+
+def test_assertions_survive_a_redacted_output():
+    """The reason the containment is recorded at capture time, not derived later.
+
+    member_name is in sensitive_output_fields, so what reaches the log is
+    "***REDACTED***". A distiller matching the caller's query against THAT
+    finds nothing and silently emits a weaker checkpoint, with no indication
+    why. loop.py therefore records which parameters the raw value contained --
+    the parameter NAMES only, never the value -- and the distiller reads that.
+    """
+    from src.artifact.distill import _derive_assertions_from_hints
+
+    events = [
+        {
+            "event": "output_marked",
+            "name": "member_name",
+            "value": "***REDACTED***",          # what redaction leaves behind
+            "contains_params": ["query"],       # computed before redaction
+        },
+        {"event": "output_marked", "name": "address", "value": "1 Main St",
+         "contains_params": []},
+    ]
+
+    derived = _derive_assertions_from_hints(
+        events, ["member_name", "address"], {"query": "Hopper", "search_by": "name"}
+    )
+    assert [(d.output, d.contains_input) for d in derived] == [("member_name", "query")]
+
+
+def test_the_hint_records_no_values_only_parameter_names():
+    """Whatever redaction was protecting stays protected."""
+    from src.artifact.distill import _derive_assertions_from_hints
+
+    events = [{"event": "output_marked", "name": "member_name",
+               "value": "***REDACTED***", "contains_params": ["query"]}]
+    derived = _derive_assertions_from_hints(events, ["member_name"], {"query": "Hopper"})
+
+    # The assertion names an input to compare against at replay time; it does
+    # not carry the surname, and could not reconstruct the masked value.
+    assert derived[0].contains_input == "query"
+    assert derived[0].contains_literal is None
+
+
+def test_a_run_without_hints_still_distills():
+    """Runs recorded before the hint existed fall back to the logged value."""
+    from src.artifact.distill import _derive_assertions
+
+    assert _derive_assertions({"member_name": "Hopper, Grace"}, {"query": "Hopper"})

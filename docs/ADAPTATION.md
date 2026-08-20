@@ -478,18 +478,57 @@ transfer form:
 It does not keep a shape assertion. It asserts "somewhere under `/members/`",
 which is most of the flow.
 
-**Shipped as-is, limitation documented.** `member_inquiry@1` covers
-search-by-number and works; `@2` covers search-by-name and is pinned to the
-surname it was recorded with. Nothing regressed.
+`@2` was shipped as a documented partial, then fixed properly — §4.16.
 
-**The real fix is one this repo already named.** `REPORT.md`'s Cuts section has
-said since the take-home that "the checkpoint is a URL pattern only... a
-content assertion would be stronger." This is the case that forces it: a
-checkpoint gaining an optional content claim alongside its URL — the extracted
-`member_name` must contain `query` — asserts the identity in terms the caller
-*did* supply. That is the same move `ExtractionRule` already makes: assert the
-shape, parameterise the identity. The wildcard does the first half and abandons
-the second, which is why it looks consistent and is not.
+### 4.16 Content assertions on the checkpoint
+
+`REPORT.md`'s Cuts section has said since the take-home that *"the checkpoint
+is a URL pattern only... a content assertion would be stronger."* §4.15 is the
+case that forced it, and it arrived from the target rather than from anyone
+deciding to build it.
+
+A checkpoint now answers its question in two parts, because on a real console
+both parts are not always knowable from the caller's inputs.
+
+**Shape** — `url_pattern` gains a `{*}` segment for a path component the
+distiller cannot bind to any parameter. `{*}` matches **exactly one segment**,
+deliberately not `fnmatch`'s `*`: that crosses `/`, so a checkpoint of
+`/members/*` is satisfied by `/members/100987/transfer` — a run that died
+halfway through a transfer form. Measured before choosing, not assumed.
+
+**Identity** — `CheckpointAssertion` states a claim in terms the caller *did*
+supply: the value extracted for `member_name` must contain the `query` they
+searched for. This is the same division `ExtractionRule` already makes — assert
+the shape, parameterise the identity — which is why the wildcard alone was the
+wrong answer: it does the first half and abandons the second.
+
+Both are derived automatically at distill time. Assertions are recorded **only
+where they were true of the run being distilled**; an assertion the recording
+itself would have failed is not a property of the capability, it is a bug being
+written into the contract.
+
+**The identifier heuristic is deliberately narrow**, and the asymmetry is the
+reasoning. Mistaking a route word for a record id *silently* weakens a
+checkpoint that was correct — the artifact keeps passing while asserting less,
+and nothing says so. Mistaking a record id for a route word freezes it, which
+fails loudly on the first replay with different inputs, exactly as `@2` did. A
+false negative announces itself; a false positive does not.
+
+**Redaction turned out to sit in the middle of this**, and the fix is the
+better part of the design. `member_name` is in `sensitive_output_fields`, so
+what reaches the evidence log is `***REDACTED***` — and a distiller checking
+whether the caller's `query` appears in *that* finds nothing and silently emits
+a weaker checkpoint. So the containment is computed at **mark-output time**,
+while the raw value is still in hand, and only the **parameter names** are
+logged: the fact that `member_name` contained the caller's `query`, never what
+either was.
+
+The result is a checkpoint that asserts the identity of a record whose name is
+masked in every log and every artifact on disk. Verified end to end:
+`member_inquiry@3` was recorded searching for `Hopper` and replays correctly
+for `Turing`, while a search matching nobody still short-circuits to
+`MEMBER_NOT_FOUND` before extraction — a legitimate empty result is a business
+outcome, not a checkpoint failure.
 
 ---
 
@@ -519,6 +558,7 @@ criterion.
 | 15 | Unused-input refusal; fault injection | Recovery demonstrated live |
 | 16 | Replaying the two capabilities that had only been recorded | Two over-fitted detector markers found; `place_account_hold` had never been replayable |
 | 17 | Re-recording `member_inquiry` to bind `search_by` | Dead parameter closed; exposed that a URL checkpoint cannot express a search-by-name destination |
+| 18 | Checkpoint content assertions | Closes a limitation `REPORT.md` has carried since the take-home; `@3` recorded on one surname, replays on another |
 
 Reconnaissance before code was the highest-leverage decision. Three scripts, no
 guesses: every design choice after step 3 was made against observed behaviour
@@ -528,7 +568,7 @@ rather than the brief's description of it.
 
 ## 6. Verification
 
-**178 tests passing**, up from 126 — including the 13 browser tests that
+**194 tests passing**, up from 126 — including the 13 browser tests that
 exercise the real mock app through every changed path.
 
 Live against MERIDIAN CORE:
@@ -549,6 +589,7 @@ Live against MERIDIAN CORE:
 | Verify-don't-trust | 3 × `checkpoint_not_met` + a balance check proving the money moved |
 | Business outcome, unplanned | a transfer refused for `Source share is HOLD`, reported not crashed |
 | Recovery, live | maintenance interstitial detected, `Continue` clicked, position restored — `recovery_applied: True` on `s1` |
+| Content checkpoint | `member_inquiry@3` recorded on `Hopper`, replays on `Turing`; a search matching nobody still returns `MEMBER_NOT_FOUND` |
 
 **One honest imprecision in the recovery run.** With a *forced* fault (fires on
 every request) the run recovered on `s1`, met the interstitial again on `s2`,
@@ -581,11 +622,10 @@ Per §5 of the brief, stated rather than discovered:
 
 **Known defects, left in place:**
 
-- `member_inquiry@2` reaches search-by-last-name, but its checkpoint is
-  pinned to the member the recording landed on, so it only replays for that
-  surname (§4.15). `@1` covers search-by-number and is unaffected. Note `@1`
-  could no longer be *produced* under §4.11's check — it predates it, and
-  `@2` is what compliance with that rule looks like.
+- `member_inquiry@1` could no longer be *produced* under §4.11's check — it
+  predates it. `@3` is what compliance looks like; `@1` still replays and
+  covers search-by-number, and `@2` is kept as the intermediate that
+  exposed the checkpoint limitation.
 - `s2`'s ladder is single-candidate (`css_name_attr` only) — no fallback if
   that attribute changes. `label_proximity` did not fire on the search form's
   `Value:` cell; worth understanding rather than leaving unremarked.
@@ -622,17 +662,13 @@ the artifact's contract, not just the code's logic.
 
 In priority order:
 
-1. **A content assertion on the checkpoint** — the fix §4.15 calls for, and
-   the one `REPORT.md` has named as a limitation since the take-home. An
-   optional content claim alongside the URL pattern, so a capability whose
-   destination is not derivable from its inputs can still assert it arrived
-   at the right record.
-2. A per-run recovery ceiling, so an unclearable fault reports
-   `session_recovery_exhausted` rather than `locator_not_found`.
-3. More structural checks on the artifact contract, in the spirit of §4.11 —
+1. **A per-run recovery ceiling.** The budget is per-step, so a fault that
+   never clears exhausts no single step's allowance and the run reports
+   `locator_not_found` rather than `session_recovery_exhausted` (§6).
+2. More structural checks on the artifact contract, in the spirit of §4.11 —
    the defect class that unit tests are constitutionally unable to catch.
-4. Recalibrating the locator ladder's confidence priors from accumulated
+3. Recalibrating the locator ladder's confidence priors from accumulated
    telemetry rather than leaving them as fixed guesses.
-5. A `DesktopSurface` behind the same locator-ladder contract, and
+4. A `DesktopSurface` behind the same locator-ladder contract, and
    authenticated console access — both carried over from the take-home's own
    cut list and both still outstanding.

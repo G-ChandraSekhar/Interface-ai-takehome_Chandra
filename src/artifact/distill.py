@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 
 from src.artifact.schema import (
     Artifact,
+    CheckpointAssertion,
     ArtifactDetectors,
     ArtifactPolicy,
     ArtifactStep,
@@ -180,11 +181,97 @@ def _build_step(event: dict, params: dict[str, str], step_id: str) -> ArtifactSt
 
 
 def _url_pattern_from(url: str, params: dict[str, str]) -> str:
+    """The checkpoint path, with every parameter value it contains bound.
+
+    A segment that matches no parameter and does not look like a fixed part
+    of the route becomes {*} -- a shape claim rather than a frozen literal.
+    See _looks_like_an_identifier() for where that line is drawn, and
+    _derive_assertions() for what carries the identity instead.
+    """
     path = urlparse(url).path
     for pname, pval in params.items():
         if pval and str(pval) in path:
             path = path.replace(str(pval), "{" + pname + "}")
-    return path
+
+    segments = path.split("/")
+    for i, segment in enumerate(segments):
+        if segment and "{" not in segment and _looks_like_an_identifier(segment):
+            segments[i] = "{*}"
+    return "/".join(segments)
+
+
+def _looks_like_an_identifier(segment: str) -> bool:
+    """Is this path segment a record id rather than a fixed route word?
+
+    Deliberately narrow: digits and separators only. `100234` qualifies;
+    `members`, `transfer`, `open-share` do not, and neither does a share id
+    like `100234-S0070` -- share ids never appear as URL segments on this
+    target, and a segment carrying letters is far more likely to be a route
+    word than a record id.
+
+    Narrow because the two ways to be wrong are not equally bad. Treating a
+    route word as an identifier silently weakens a checkpoint that was
+    perfectly parameterised -- the artifact would keep passing while asserting
+    less than it used to, and nothing would say so. Treating an identifier as
+    a route word freezes it, which fails loudly on the first replay with
+    different inputs, exactly as member_inquiry@2 did. A false negative
+    announces itself; a false positive does not.
+    """
+    return any(c.isdigit() for c in segment) and not any(c.isalpha() for c in segment.replace("-", ""))
+
+
+def _derive_assertions_from_hints(output_events, required_outputs, params) -> list:
+    """Assertions from the containment recorded at mark_output time.
+
+    loop.py computes which parameters an output's value contained while the
+    raw value is still in hand, and logs only the parameter names. That
+    indirection exists because outputs named in sensitive_output_fields are
+    masked before they reach disk -- a redacted member_name contains nothing,
+    so a distiller matching on the logged value would silently derive no
+    assertion and produce a weaker checkpoint with no indication why.
+    """
+    assertions = []
+    seen = set()
+    for event in output_events:
+        name = event.get("name")
+        if name not in required_outputs or name in seen:
+            continue
+        for pname in event.get("contains_params") or []:
+            if pname in params:
+                assertions.append(CheckpointAssertion(output=name, contains_input=pname))
+                seen.add(name)
+                break
+    return assertions
+
+
+def _derive_assertions(outputs_seen: dict, params: dict) -> list:
+    """Content claims that hold for the run being distilled.
+
+    Only claims that were TRUE of this run are recorded, and only where an
+    extracted output actually contained a supplied parameter -- so a
+    search-by-name run yields "member_name contains query" because
+    'Hopper, Grace' really does contain 'Hopper'. Nothing is invented: an
+    assertion the recorded run would itself have failed is not a claim about
+    the capability, it is a bug being written into the contract.
+
+    Deliberately not exhaustive. One true identity claim is what the URL
+    pattern gave up; piling on every incidental substring coincidence would
+    make artifacts brittle against data that is none of the capability's
+    business.
+    """
+    assertions = []
+    for output_name, observed in outputs_seen.items():
+        if not observed:
+            continue
+        for pname, pval in params.items():
+            if not pval or len(str(pval)) < 2:
+                continue
+            if str(pval).lower() in str(observed).lower() and str(pval) != str(observed):
+                assertions.append(
+                    CheckpointAssertion(output=output_name, contains_input=pname)
+                )
+                break
+    return assertions
 
 
 def distill_run(
@@ -328,9 +415,31 @@ def distill_run(
 
     last_output_event = output_events[-1]
     checkpoint_url = last_output_event.get("page_url", "")
+    checkpoint_pattern = _url_pattern_from(checkpoint_url, params)
+
+    # A {*} segment means the URL can no longer say WHICH record this ended
+    # on, only that it ended on one. Derive a content claim to carry that,
+    # from what the run actually produced.
+    observed_outputs = {
+        e["name"]: e.get("value")
+        for e in output_events
+        if e["name"] in required_outputs
+    }
+    checkpoint_assertions = []
+    if "{*}" in checkpoint_pattern:
+        checkpoint_assertions = _derive_assertions_from_hints(
+            output_events, required_outputs, params
+        )
+        if not checkpoint_assertions:
+            # Older runs predate the recorded hints. Fall back to matching on
+            # the logged value, which works for any output redaction did not
+            # touch.
+            checkpoint_assertions = _derive_assertions(observed_outputs, params)
+
     checkpoint = Checkpoint(
         description="All required outputs (" + ", ".join(required_outputs) + ") are visible on this page.",
-        url_pattern=_url_pattern_from(checkpoint_url, params),
+        url_pattern=checkpoint_pattern,
+        assertions=checkpoint_assertions,
     )
 
     # Every declared input must actually be consumed, or the capability
