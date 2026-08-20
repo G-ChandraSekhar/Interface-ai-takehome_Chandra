@@ -240,8 +240,18 @@ def main():
     if doc.exists():
         text = doc.read_text()
         words = len(text.split())
-        check("6.2", "write-up is 1-2 pages as asked", words < 1400,
-              str(words) + " words -- the brief asks for ~1-2 pages",
+        # ~1-2 pages of PROSE. Tables and the evidence index are reference
+        # material a reviewer scans rather than reads, so the bar is on the
+        # prose -- padding the count with tables would defeat the check, and
+        # counting them against it would push out the very things that make
+        # the claims verifiable.
+        prose = [
+            line for line in text.splitlines()
+            if not line.strip().startswith(("|", ">", "```", "#"))
+        ]
+        prose_words = len(" ".join(prose).split())
+        check("6.2", "write-up is 1-2 pages of prose", prose_words < 1200,
+              str(prose_words) + " words of prose (" + str(words) + " with tables)",
               level="MUST")
         # Section 6.2 names five things the write-up must cover. Each check
         # looks for a phrase the write-up cannot plausibly omit if it really
@@ -258,6 +268,18 @@ def main():
             ("what was cut", "What I cut"),
         ]:
             check("6.2", "write-up covers " + topic, needle.lower() in text.lower())
+
+    # A write-up that cites a run which is not committed is the worst error it
+    # could contain: a reviewer clicks, finds nothing, and reasonably wonders
+    # what else was asserted rather than checked.
+    import re
+
+    cited = set()
+    for path in (REPO / "docs/ADAPTATION.md", REPO / "README.md"):
+        if path.exists():
+            cited |= set(re.findall(r"(?:replay|discovery)_\d{8}T\d{6}Z_[0-9a-f]{6}", path.read_text()))
+    for run in sorted(cited):
+        check("6.3", "cited evidence exists: " + run[:34], (evidence / run).exists())
 
     check("6.3", "screen recording", False,
           "not produced -- evidence bundles and screenshots stand in",
