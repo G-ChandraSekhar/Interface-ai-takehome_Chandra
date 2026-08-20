@@ -1,0 +1,4 @@
+{"ts": "2026-08-20T22:59:19.273118+00:00", "event": "replay_started", "artifact_id": "member_inquiry", "version": 1, "params": {"member_id": "1234", "search_by": "Member Number"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-20T22:59:19.948583+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-20T22:59:20.129035+00:00", "event": "business_outcome", "code": "MEMBER_NOT_FOUND", "step_id": "s3"}
+{"ts": "2026-08-20T22:59:20.195988+00:00", "event": "replay_finished", "status": "business_outcome"}

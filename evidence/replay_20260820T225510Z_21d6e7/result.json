@@ -1,0 +1,44 @@
+{
+  "status": "failure",
+  "outcome_code": null,
+  "outcome_message": null,
+  "outputs": {},
+  "failure": {
+    "class": "checkpoint_not_met",
+    "step_id": null,
+    "expected": "All required outputs (member_name, address) are visible on this page.",
+    "observed": "extracted member_name='Turing, Alan' does not contain '100987'"
+  },
+  "step_telemetry": [
+    {
+      "step_id": "s1",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s2",
+      "resolved_tier": 1,
+      "resolved_strategy": "label_proximity",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s3",
+      "resolved_tier": 1,
+      "resolved_strategy": "css_name_attr",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s4",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s5",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    }
+  ]
+}

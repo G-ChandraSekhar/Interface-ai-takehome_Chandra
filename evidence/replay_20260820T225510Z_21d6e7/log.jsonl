@@ -1,0 +1,3 @@
+{"ts": "2026-08-20T22:55:10.713892+00:00", "event": "replay_started", "artifact_id": "member_inquiry", "version": 3, "params": {"query": "100987", "search_by": "Member Number"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-20T22:55:11.609309+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-20T22:55:11.984418+00:00", "event": "replay_finished", "status": "failure"}
