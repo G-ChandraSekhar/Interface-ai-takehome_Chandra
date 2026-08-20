@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-08-20T16:37:20+00:00",
+  "artifacts": [
+    {
+      "artifact_id": "lookup_member_savings_balance_detectors_test",
+      "status": "degrading",
+      "runs_seen": 15,
+      "baseline_runs": 10,
+      "recent_runs": 5,
+      "baseline_failure_rate": 0.0,
+      "recent_failure_rate": 0.0,
+      "failure_rate_delta": 0.0,
+      "steps": [
+        {
+          "step_id": "s1",
+          "status": "degrading",
+          "baseline_tier": 1.0,
+          "recent_tier": 2.0,
+          "tier_delta": 1.0,
+          "worst_recent_tier": 2,
+          "recent_strategy": "css_name_attr",
+          "baseline_strategy": "label_proximity"
+        },
+        {
+          "step_id": "s2",
+          "status": "stable",
+          "baseline_tier": 1.0,
+          "recent_tier": 1.0,
+          "tier_delta": 0.0,
+          "worst_recent_tier": 1,
+          "recent_strategy": "role_name",
+          "baseline_strategy": "role_name"
+        },
+        {
+          "step_id": "s3",
+          "status": "stable",
+          "baseline_tier": 1.0,
+          "recent_tier": 1.0,
+          "tier_delta": 0.0,
+          "worst_recent_tier": 1,
+          "recent_strategy": "role_name",
+          "baseline_strategy": "role_name"
+        }
+      ],
+      "notes": []
+    }
+  ],
+  "records_read": 15,
+  "records_skipped": 0
+}
