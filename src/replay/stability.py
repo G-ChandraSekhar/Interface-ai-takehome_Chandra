@@ -13,6 +13,12 @@ Section 7 of the brief is explicit that building scaling infrastructure
 operator runs occasionally before approving a capability, not a production
 hot path that would need one.
 
+Relationship to `cli.py health`: this command asks "is this artifact reliable
+right now", by running it N times back to back. That is a snapshot, and a
+snapshot cannot see a step that used to resolve at tier 1 and now resolves at
+tier 3. `health` reads the same telemetry across time instead of across one
+sitting. The two answer different questions and neither replaces the other.
+
 IMPORTANT: this module never sets Artifact.approved. See
 ArtifactStability's docstring in src/artifact/schema.py for why -- approval
 stays a human reviewer's out-of-band decision everywhere in this codebase;
@@ -28,6 +34,7 @@ from datetime import datetime, timezone
 from src.artifact.schema import Artifact, ArtifactStability
 from src.replay.engine import replay_artifact
 from src.replay.result import ReplayStatus
+from src.telemetry.record import SOURCE_STABILITY
 
 
 @dataclass
@@ -103,6 +110,12 @@ def run_stability(
             page=page,
             evidence_root=evidence_root,
             run_id=run_id,
+            # Tagged so `health` can exclude these by default. N runs fired
+            # back to back in one minute would otherwise dominate a baseline
+            # window meant to span weeks, and the drift signal would end up
+            # measuring the operator's testing habits rather than the bank's
+            # console.
+            telemetry_source=SOURCE_STABILITY,
             **replay_kwargs,
         )
         if result.status == ReplayStatus.SUCCESS:

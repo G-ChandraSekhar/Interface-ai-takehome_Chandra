@@ -14,10 +14,16 @@ launched. This keeps the engine's actual decision logic (locator fallback,
 business-outcome/failure classification, checkpoint verification, output
 extraction) testable without a browser, while the real end-to-end path is
 still exactly what production uses.
+
+replay_artifact() is a thin wrapper that records one line of durable history
+per run; _execute_replay() below it is the engine proper and is unchanged.
+See the wrapper's docstring for why the emission lives there and not inside.
 """
 
 from __future__ import annotations
 
+import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -36,8 +42,99 @@ from src.replay.checkpoint import checkpoint_met
 from src.replay.detectors import detect_business_outcome, detect_hard_failure, detect_recoverable
 from src.replay.locator_resolver import ResolutionFailure, resolve_locator
 from src.replay.result import FailureClass, FailureDetail, ReplayResult, ReplayStatus, StepTelemetry
+from src.telemetry.record import SOURCE_REPLAY, ReplayRecord, StepObservation, append_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _default_telemetry_path() -> Path:
+    """Where run history accumulates.
+
+    Overridable by environment so a test run, or a deployment with a read-only
+    checkout, can redirect history without every caller having to thread a path
+    through. tests/conftest.py sets this to a temp dir so the suite never
+    appends to the real file.
+    """
+    override = os.environ.get("REPLAY_TELEMETRY_PATH")
+    return Path(override) if override else (REPO_ROOT / "telemetry" / "runs.jsonl")
+
+
+def replay_artifact(
+    artifact: Artifact,
+    params: dict,
+    *,
+    telemetry_path=None,
+    telemetry_source: str = SOURCE_REPLAY,
+    record_telemetry: bool = True,
+    **kwargs,
+) -> ReplayResult:
+    """Runs a replay and records one line of durable history for it.
+
+    A wrapper rather than an emission inside _execute_replay's many return
+    sites: there are fifteen ways out of that function, and a telemetry call at
+    each one is fifteen chances for the next person to add a sixteenth and
+    forget. Here there is exactly one exit to instrument, and the engine's own
+    logic stays untouched.
+
+    Telemetry failure never fails a replay. History is a decision-support
+    signal; a full disk should not stop a teller's lookup from working.
+    """
+    started = time.monotonic()
+    result = _execute_replay(artifact, params, **kwargs)
+    duration_ms = int((time.monotonic() - started) * 1000)
+
+    if record_telemetry:
+        try:
+            append_record(
+                _telemetry_record(artifact, result, duration_ms, telemetry_source),
+                path=telemetry_path or _default_telemetry_path(),
+            )
+        except Exception as exc:  # noqa: BLE001 -- deliberate, see docstring
+            print("[telemetry] run not recorded: " + str(exc))
+
+    return result
+
+
+def _telemetry_record(artifact, result, duration_ms, source) -> ReplayRecord:
+    steps = [
+        StepObservation(
+            step_id=t.step_id,
+            resolved=True,
+            tier=t.resolved_tier,
+            strategy=t.resolved_strategy,
+        )
+        for t in result.step_telemetry
+    ]
+
+    # step_telemetry only ever holds steps that resolved -- a step that failed
+    # the ladder returns before it is appended. Recovering the failed step from
+    # the failure detail matters: "s3 stopped resolving" is the single most
+    # useful thing history can tell you, and without this it would be the one
+    # thing history never saw.
+    if result.failure and result.failure.step_id:
+        if result.failure.step_id not in {s.step_id for s in steps}:
+            steps.append(
+                StepObservation(
+                    step_id=result.failure.step_id,
+                    resolved=False,
+                    failure_reason=result.failure.step_class.value,
+                )
+            )
+
+    return ReplayRecord(
+        run_id=Path(result.run_dir).name if result.run_dir else "unknown",
+        recorded_at=ReplayRecord.utcnow_iso(),
+        artifact_id=artifact.artifact_id,
+        artifact_version=str(artifact.version),
+        tenant=getattr(artifact.target, "tenant", None),
+        source=source,
+        outcome=result.status.value,
+        outcome_detail=(
+            result.failure.step_class.value if result.failure else result.outcome_code
+        ),
+        duration_ms=duration_ms,
+        steps=steps,
+    )
 
 
 def _page_text(page):
@@ -90,7 +187,7 @@ def _mock_login(page, base_url, route_prefix, chaos="none"):
     page.click("button[type='submit']")
 
 
-def replay_artifact(
+def _execute_replay(
     artifact: Artifact,
     params: dict,
     *,
@@ -466,7 +563,8 @@ def replay_artifact(
             # A tier above 1 means the top-ranked locator no longer worked
             # and a fallback rescued this step -- worth logging loudly, since
             # a step that starts needing fallbacks is drifting toward
-            # eventual failure even while it still "passes".
+            # eventual failure even while it still "passes". `cli.py health`
+            # is what turns this per-run log line into a trend across runs.
             if tier > 1:
                 evidence.log_event(
                     "locator_rescued_by_fallback",

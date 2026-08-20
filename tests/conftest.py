@@ -1,3 +1,5 @@
+"""Shared pytest fixtures."""
+
 from __future__ import annotations
 
 import os
@@ -9,6 +11,30 @@ import pytest
 import requests
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture(autouse=True)
+def isolated_telemetry(tmp_path, monkeypatch):
+    """Keeps the test suite out of the real run-history file.
+
+    replay_artifact() appends a line of durable history on every call, and this
+    suite calls it a great many times against FakePage. Without redirection,
+    running pytest would quietly fill telemetry/runs.jsonl with hundreds of
+    synthetic runs, and `cli.py health` would end up reporting on the test
+    suite's behaviour rather than the bank console's -- poisoning the exact
+    signal the file exists to carry.
+
+    Redirected by environment variable rather than by argument on purpose: the
+    tests then exercise the same default-path resolution that production uses,
+    instead of a special branch only tests ever take.
+
+    Autouse because the cost of forgetting it on one new test is a silently
+    corrupted history file, which is a much worse failure than a redundant
+    fixture on a test that never touches telemetry.
+    """
+    monkeypatch.setenv("REPLAY_TELEMETRY_PATH", str(tmp_path / "runs.jsonl"))
+    yield
+    os.environ.pop("REPLAY_TELEMETRY_PATH", None)
 
 
 @pytest.fixture(scope="session")
