@@ -234,11 +234,17 @@ whether claimed authority softens anything.
 | Capability | Inputs | Outputs |
 |---|---|---|
 | `member_inquiry@1` | member_id, search_by | member_name, address |
+| `member_inquiry_by_name@1` | query, search_by | member_name, address |
 | `check_member_balance@1` | member_id, share_id | member_name, share_balance |
 | `update_member_information@1` | member_id, phone | member_name, phone |
 | `funds_transfer@2` | member_id, from_share, to_share, amount, memo | confirmation, amount |
 | `open_new_share@1` | member_id, share_type, deposit | confirmation, share_type |
 | `place_account_hold@2` | member_id, share_id, reason, notes | confirmation, hold_status |
+
+Two ways to find a member, because they are different capabilities rather than
+versions of one: by number, and by last name. `artifacts/history/` holds the
+earlier attempt to treat them as versions — kept as evidence, out of the
+catalog. See `docs/ADAPTATION.md` §4.19.
 
 Sign-on is covered as a configured precondition rather than a recorded
 artifact — it runs on every capability, for both operator profiles, and is what

@@ -637,9 +637,89 @@ from asking for **permission** (never — the system decides that). Each defect
 is pinned by a test that reads the prompt or the code path, because "it came
 out right once" is not a property.
 
-`scripts/probe_chat.py` exercises nine standards against the running chatbot,
-including whether a refusal gets routed around, whether claimed authority
-softens anything, and whether page content is treated as instructions.
+**Then it answered "what is interface.ai".** Nothing was wrong with the
+answer — the problem is that a banking console produced one. A general-purpose
+model behind a narrow prompt is still a general-purpose model: the prompt is a
+request, not a constraint, and someone else's tokens pay for whatever it
+decides to be helpful about.
+
+**Free text is the drift channel, so it was removed.** `tool_choice="required"`
+means every turn calls something, with exactly three places to go: a
+capability, `ask_for_missing_argument`, or `decline_out_of_scope`. There is
+nowhere left to write a paragraph. Control tools answer without a second
+completion and the system owns the wording — a refusal that costs an extra
+model call is one someone can bill you for by repeating it. Input is bounded
+(600 characters, 12 messages of history) before the catalog even loads, and
+output at 300 tokens.
+
+**And then it became a wall**, which is its own failure. Refusing everything
+that is not a transaction makes a front desk useless, so
+`describe_this_console` answers "what can you do" **from the catalog**. The
+alternative — letting the model describe the system — means a teller is told
+about capabilities by something that has never read the artifact list:
+confidently, and wrongly the moment one is added. The refusal now points at it,
+because a dead end teaches people to stop asking.
+
+**Three more defects, same shape as the first three.**
+
+| What it did | What was wrong |
+|---|---|
+| Refused a mixed request whole | The dispatch returned on the first decline, discarding a capability call later in the same list — so "look up member 100234, and also explain HTTPS" refused the lookup too |
+| Declined a transfer as *out of scope* | A transfer is squarely in scope and should be refused by the **policy engine**, which records evidence. Two prompt sections collided: one said money movement cannot be done here, the other said decline what this console does not do |
+| Reported a failed lookup as *"the member name is protected"* | **False.** The run did not complete. The model held an instruction about redacted values and reached for the nearest plausible explanation — while the evidence panel said `checkpoint_not_met` three inches away |
+
+The last is the worst of the six, and different in kind. The others skipped a
+mechanism whose outcome the model correctly predicted; this one **invented an
+explanation** for a failure it had no account of. A teller would have walked
+away believing the name was private. A wrong explanation is worse than no
+answer, because it ends the enquiry.
+
+**All six argue the same thing.** Everything routed through the prompt is a
+request. The guarantees that hold — `irreversible_confirmed=False`, the signed
+confirmation tokens — are in code the model cannot reach, and that distinction
+is now something the chatbot demonstrates rather than claims.
+
+`scripts/probe_chat.py` exercises fourteen standards against a running
+instance, including whether a refusal gets routed around, whether claimed
+authority softens anything, whether page content is treated as instructions,
+and whether a failed run is reported as a failure.
+
+### 4.19 A variant is not a version
+
+`member_inquiry@1` searches by **member number**. `@3` searches by **last
+name**. They share an id, so the catalog was told `@3` superseded `@1` — and
+the chatbot, which is offered the latest version of each capability, was handed
+only the by-name variant. Asked to look up member 100987, it typed a member
+number into a name field.
+
+The content assertion added hours earlier (§4.16) caught it:
+`extracted member_name='Lovelace, Ada' does not contain '100234'`.
+
+> **Versioning encodes supersession.** A variant recorded as a version silently
+> removes the older behaviour from every caller that asks the catalog what is
+> current.
+
+Nothing was broken. `@1` still replayed perfectly; the catalog still listed it;
+`/capabilities` still served it. Only a caller asking *"what is the current
+member_inquiry"* lost the ability to search by number — and every automated
+caller asks exactly that, because that is what latest-only means.
+
+It surfaced because a model, handed one tool, used it for a job it was not for.
+A human operator reading the catalog would have seen both entries and picked
+the right one. This is the class of defect that appears only when something
+consumes the catalog *as a contract* rather than reading it as a list.
+
+**Fixed without a new discovery run** — the by-name evidence already existed,
+so it was re-distilled as `member_inquiry_by_name@1`, and the mis-versioned
+artifacts moved to `artifacts/history/`: still in the repo as evidence, out of
+the catalog, because `discover_artifacts` globs one level. Seven capabilities
+now, each named for what it does.
+
+**What this implies for the artifact contract:** version numbers carry a claim
+the schema never states and nothing enforces. A `supersedes` field, or refusing
+to distill a version whose input parameters differ from its predecessor's,
+would make the claim checkable. Same shape as §4.11 — the defect is in what the
+artifact asserts, not in what any code does.
 
 ---
 
@@ -672,7 +752,9 @@ criterion.
 | 18 | Checkpoint content assertions | Closes a limitation `REPORT.md` has carried since the take-home; `@3` recorded on one surname, replays on another |
 | 19 | Run-wide recovery ceiling | A returning fault now reports the condition rather than a missing selector |
 | 20 | Auditing the dashboard's derived figures | Zero disagreements; 72 guardrail refusals were mislabelled `unknown` |
-| 21 | Chatbot | Three tiers enforced; three defects found, all the model imitating a guarantee rather than invoking it |
+| 21 | Chatbot | Three tiers enforced; six defects found, all the model imitating a guarantee rather than invoking it |
+| 22 | Scope enforcement and a help path | Free text removed; the console describes itself from its own catalog |
+| 23 | Splitting `member_inquiry` | A variant had been recorded as a version, silently removing by-number lookup from every caller asking for the latest |
 
 Reconnaissance before code was the highest-leverage decision. Three scripts, no
 guesses: every design choice after step 3 was made against observed behaviour
@@ -682,7 +764,7 @@ rather than the brief's description of it.
 
 ## 6. Verification
 
-**215 tests passing**, up from 126 — including the 13 browser tests that
+**229 tests passing**, up from 126 — including the 13 browser tests that
 exercise the real mock app through every changed path.
 
 Live against MERIDIAN CORE:
@@ -707,6 +789,10 @@ Live against MERIDIAN CORE:
 | Chatbot, safe tier | balance read from a plain-language request, figure reported verbatim |
 | Chatbot, mutating tier | phone update held for confirmation, confirmed by click, applied — and a tampered token refused |
 | Chatbot, irreversible tier | transfer refused by the **policy engine**, with an evidence bundle |
+| Chatbot, scope | "what is interface.ai" declined in one completion; "only a test" changes nothing |
+| Chatbot, help | "what can you do" lists all seven capabilities, read off the catalog |
+| Chatbot, mixed request | member 100987 returned; the HTTPS aside declined, never answered |
+| Both lookup paths | `member_inquiry` by number and `member_inquiry_by_name` reach the same member by different routes |
 | Dashboard figures | every displayed number recomputed from raw evidence — no disagreements |
 
 **An imprecision in that recovery run, since fixed.** With a *forced* fault
@@ -746,10 +832,21 @@ Per §5 of the brief, stated rather than discovered:
 
 **Known defects, left in place:**
 
+- **Version numbers carry an unchecked claim.** `member_inquiry@1` and the
+  by-name variant shared an id until they were split (§4.19); nothing in the
+  schema states that a version supersedes its predecessor, and nothing enforces
+  it. A `supersedes` field — or refusing to distill a version whose input
+  parameters differ from the previous one's — would make the claim checkable.
+  The same shape as §4.11: the defect is in what the artifact asserts, not in
+  what any code does.
+
 - `member_inquiry@1` could no longer be *produced* under §4.11's check — it
-  predates it. `@3` is what compliance looks like; `@1` still replays and
-  covers search-by-number, and `@2` is kept as the intermediate that
-  exposed the checkpoint limitation.
+  predates it, and its `search_by` parameter is still unused. It replays
+  correctly for search-by-number, which is what the catalog offers it for.
+  `member_inquiry_by_name@1` is what compliance with both §4.11 and §4.16
+  looks like. The two mis-versioned intermediates sit in `artifacts/history/`,
+  out of the catalog but kept: `@2` is the one whose frozen checkpoint exposed
+  the URL-pattern limitation.
 - `s2`'s ladder is single-candidate (`css_name_attr` only) — no fallback if
   that attribute changes. `label_proximity` did not fire on the search form's
   `Value:` cell; worth understanding rather than leaving unremarked.
@@ -786,8 +883,11 @@ the artifact's contract, not just the code's logic.
 
 In priority order:
 
-1. More structural checks on the artifact contract, in the spirit of §4.11 —
-   the defect class that unit tests are constitutionally unable to catch.
+1. More structural checks on the artifact contract, in the spirit of §4.11 and
+   §4.19 — the defect class that unit tests are constitutionally unable to
+   catch, because the code is correct and the artifact's claim about itself is
+   not. Checking that a new version's input parameters match its predecessor's
+   would have caught the variant split before a model tripped over it.
 2. Recalibrating the locator ladder's confidence priors from accumulated
    telemetry rather than leaving them as fixed guesses.
 3. A `DesktopSurface` behind the same locator-ladder contract, and
