@@ -35,6 +35,7 @@
     --recovered:  #6C9BCF;
     --failure:    #D96A6A;
     --escalated:  #B084CC;
+  --denied:     #7C8AA0;
 
     --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
     --sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
@@ -310,6 +311,7 @@ const STATUS = {
   business_outcome: { color: 'var(--outcome)',   label: 'business outcome' },
   blocked:          { color: 'var(--outcome)',   label: 'blocked' },
   failure:          { color: 'var(--failure)',   label: 'failure' },
+  denied:           { color: 'var(--denied)',    label: 'denied' },
   stuck:            { color: 'var(--failure)',   label: 'stuck' },
   unknown:          { color: 'var(--dim)',       label: 'unknown' },
 };
@@ -333,7 +335,7 @@ const label = r => {
 function Legend() {
   return (
     <div className="legend">
-      {['success','escalated','recovered','business_outcome','failure'].map(k => (
+      {['success','escalated','recovered','business_outcome','failure','denied'].map(k => (
         <span key={k}><i style={{background: statusOf(k).color}} />{statusOf(k).label}</span>
       ))}
     </div>

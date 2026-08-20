@@ -179,10 +179,26 @@ def _escalation_windows(events: List[dict]) -> List[dict]:
 
 def _display_status(result: Optional[dict], events: List[dict]) -> str:
     """The status a person reads, which is not always the status the engine
-    returned. `escalated` and `recovered` are properties of how the run got
-    to its result, and both are things a reviewer scans for first."""
-    status = (result or {}).get("status") or "unknown"
+    returned.
+
+    `escalated` and `recovered` are properties of how the run REACHED its
+    result rather than of the result itself, and both are the first thing a
+    reviewer scans for. Note this means the plain `success` count undercounts
+    completed runs: a run that finished perfectly but needed a human displays
+    as escalated.
+
+    `denied` is the guardrails refusing before the run began -- an
+    off-allowlist origin, a missing required parameter. Those write no
+    result.json, so they previously showed as `unknown`, which buried the
+    clearest evidence the policy engine exists in the least informative word
+    available. A refusal is a decision, not an absence of one.
+    """
     names = {e.get("event") for e in events}
+
+    if "replay_denied" in names or "run_denied" in names:
+        return "denied"
+
+    status = (result or {}).get("status") or "unknown"
 
     if status == "success" and "intervention_created" in names:
         return "escalated"

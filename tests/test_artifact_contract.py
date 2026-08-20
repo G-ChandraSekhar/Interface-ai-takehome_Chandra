@@ -383,3 +383,50 @@ def test_a_run_without_hints_still_distills():
     from src.artifact.distill import _derive_assertions
 
     assert _derive_assertions({"member_name": "Hopper, Grace"}, {"query": "Hopper"})
+
+
+# ---------------------------------------------------------------------------
+# What the dashboard's status word means
+# ---------------------------------------------------------------------------
+
+
+def test_a_guardrail_refusal_reads_as_denied_not_unknown():
+    """A refusal is a decision, not an absence of one.
+
+    Denied runs write no result.json, so they previously displayed as
+    'unknown' -- burying the clearest evidence the policy engine exists in the
+    least informative word available.
+    """
+    from src.capability_api.runs import _display_status
+
+    events = [{"event": "replay_started"},
+              {"event": "replay_denied", "reason": "missing required params"}]
+    assert _display_status(None, events) == "denied"
+
+    events = [{"event": "run_started"},
+              {"event": "run_denied", "reason": "Origin not in the configured allowlist."}]
+    assert _display_status(None, events) == "denied"
+
+
+def test_escalated_and_recovered_are_display_overrides_on_success():
+    """Which means the plain 'success' count undercounts completed runs -- a
+    run that finished perfectly but needed a human shows as escalated."""
+    from src.capability_api.runs import _display_status
+
+    success = {"status": "success"}
+    assert _display_status(success, [{"event": "replay_finished"}]) == "success"
+    assert _display_status(
+        success, [{"event": "intervention_created"}, {"event": "operator_handed_back"}]
+    ) == "escalated"
+    assert _display_status(success, [{"event": "recovery_applied"}]) == "recovered"
+
+
+def test_a_real_failure_is_never_relabelled():
+    """The overrides apply only to runs the engine considered successful."""
+    from src.capability_api.runs import _display_status
+
+    failed = {"status": "failure"}
+    assert _display_status(failed, [{"event": "intervention_created"},
+                                    {"event": "operator_handed_back"}]) == "failure"
+    assert _display_status({"status": "business_outcome"},
+                           [{"event": "recovery_applied"}]) == "business_outcome"
