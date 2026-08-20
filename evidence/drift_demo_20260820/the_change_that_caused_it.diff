@@ -1,0 +1,13 @@
+diff --git a/mock_app/tenants.py b/mock_app/tenants.py
+index 99eb500..aa58a3a 100644
+--- a/mock_app/tenants.py
++++ b/mock_app/tenants.py
+@@ -30,7 +30,7 @@ TENANTS: dict[str, TenantConfig] = {
+         tenant_id="a",
+         display_name="CorePoint Teller Desk",
+         route_prefix="/desk",
+-        member_id_label="Member ID",
++        member_id_label="Member Number",
+         member_id_field_name="member_id",
+         detail_columns=("name", "member_id", "savings_balance", "status"),
+         theme_class="theme-a",

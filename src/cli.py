@@ -11,6 +11,8 @@ Command-line entrypoint.
 
     python3 -m src.cli replay --artifact-id lookup_member_savings_balance --version 1 \\
         --param member_id=8832
+
+    python3 -m src.cli health
 """
 
 from __future__ import annotations
@@ -30,6 +32,13 @@ from src.discovery.loop import run_discovery
 from src.replay.engine import replay_artifact
 from src.replay.result import ReplayStatus
 from src.replay.stability import run_stability
+from src.telemetry.health import STATUS_DEGRADING, STATUS_INSUFFICIENT, assess_health
+from src.telemetry.record import (
+    DEFAULT_TELEMETRY_PATH,
+    SOURCE_REPLAY,
+    SOURCE_STABILITY,
+    load_records,
+)
 
 TENANT_BASE_URLS = {
     "a": ("http://localhost:4478", "/desk"),
@@ -153,6 +162,7 @@ def cmd_replay(args):
 
     sys.exit(0 if result.status == ReplayStatus.SUCCESS else 1)
 
+
 def cmd_stability(args):
     artifacts_dir = Path(args.artifacts_dir)
     try:
@@ -191,6 +201,89 @@ def cmd_stability(args):
     # reliability isn't asking a yes/no question the way a single replay
     # is; the report itself is the deliverable.
     sys.exit(0)
+
+
+def cmd_health(args):
+    """Reports which artifacts are drifting, across replay history.
+
+    `stability` asks "is this artifact reliable right now" by replaying it N
+    times back to back. That is a snapshot, and a snapshot cannot see a step
+    that used to resolve at tier 1 and now resolves at tier 3. This command is
+    the same telemetry read across time instead of across one sitting.
+    """
+    telemetry_path = Path(args.telemetry_path)
+
+    sources = (SOURCE_REPLAY, SOURCE_STABILITY) if args.include_stability else (SOURCE_REPLAY,)
+    records, skipped = load_records(
+        telemetry_path, artifact_id=args.artifact_id, sources=sources
+    )
+
+    if not records:
+        print(f"No replay history at {telemetry_path}.")
+        print("Run some replays first -- history accumulates one line per run.")
+        sys.exit(0)
+
+    report = assess_health(
+        records,
+        baseline_n=args.baseline,
+        recent_n=args.recent,
+        min_runs=args.min_runs,
+        records_skipped=skipped,
+    )
+
+    if args.json:
+        print(report.model_dump_json(indent=2))
+        sys.exit(1 if report.has_degradation else 0)
+
+    print(f"\nArtifact health from {report.records_read} runs ({telemetry_path})")
+    if report.records_skipped:
+        # Surfaced rather than swallowed: a history file that is quietly losing
+        # lines is quietly losing the signal this whole command exists to find.
+        print(f"  note: {report.records_skipped} unreadable line(s) skipped")
+
+    for artifact in report.artifacts:
+        marker = "DEGRADING" if artifact.status == STATUS_DEGRADING else artifact.status.upper()
+        print(f"\n  {artifact.artifact_id}  [{marker}]")
+
+        if artifact.status == STATUS_INSUFFICIENT:
+            for note in artifact.notes:
+                print(f"    {note}")
+            continue
+
+        print(
+            f"    windows: {artifact.baseline_runs} baseline vs "
+            f"{artifact.recent_runs} recent (of {artifact.runs_seen} runs)"
+        )
+        if artifact.baseline_failure_rate is not None:
+            print(
+                f"    failure rate: {artifact.baseline_failure_rate:.0%} -> "
+                f"{artifact.recent_failure_rate:.0%}"
+            )
+
+        for step in artifact.steps:
+            if step.status == STATUS_DEGRADING:
+                print(
+                    f"    {step.step_id}: tier {step.baseline_tier:.1f} -> "
+                    f"{step.recent_tier:.1f}  "
+                    f"({step.baseline_strategy} -> {step.recent_strategy})  DRIFTING"
+                )
+            elif step.recent_tier is not None:
+                print(f"    {step.step_id}: tier {step.recent_tier:.1f}  {step.status}")
+
+        for note in artifact.notes:
+            print(f"    note: {note}")
+
+    if report.has_degradation:
+        names = ", ".join(a.artifact_id for a in report.degrading)
+        print(f"\nDegradation detected in: {names}")
+        print("These artifacts still pass. They are resolving further down their")
+        print("locator ladders than they used to, which is what precedes failing.")
+
+    # Unlike `stability`, this DOES exit non-zero on a bad signal. The two
+    # commands answer different questions: stability is a report a human reads
+    # once before approving a capability, health is a check something runs on a
+    # schedule and needs to act on without parsing text.
+    sys.exit(1 if report.has_degradation else 0)
 
 
 def main():
@@ -273,6 +366,35 @@ def main():
         help="write the computed report back onto the saved artifact's 'stability' field",
     )
     p_stability.set_defaults(func=cmd_stability)
+
+    p_health = sub.add_parser(
+        "health",
+        help="Report artifacts drifting down their locator ladders, across replay history",
+    )
+    p_health.add_argument(
+        "--artifact-id", default=None, help="restrict to one artifact (default: all)"
+    )
+    p_health.add_argument("--telemetry-path", default=str(DEFAULT_TELEMETRY_PATH))
+    p_health.add_argument(
+        "--baseline", type=int, default=10, help="runs forming the baseline window"
+    )
+    p_health.add_argument(
+        "--recent", type=int, default=5, help="most recent runs to compare against it"
+    )
+    p_health.add_argument(
+        "--min-runs", type=int, default=6, help="below this, report insufficient_data"
+    )
+    p_health.add_argument(
+        "--include-stability",
+        action="store_true",
+        help=(
+            "include runs produced by the stability command. Excluded by default: "
+            "N runs fired back to back in one minute would swamp a baseline meant "
+            "to span weeks."
+        ),
+    )
+    p_health.add_argument("--json", action="store_true")
+    p_health.set_defaults(func=cmd_health)
 
     args = parser.parse_args()
     args.func(args)
