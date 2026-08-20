@@ -1,0 +1,3 @@
+{"ts": "2026-08-20T18:13:25.135554+00:00", "event": "replay_started", "artifact_id": "member_inquiry", "version": 1, "params": {"member_id": "100987", "search_by": "number"}}
+{"ts": "2026-08-20T18:13:26.170943+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-20T18:13:26.430096+00:00", "event": "replay_finished", "status": "success"}

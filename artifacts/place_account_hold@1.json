@@ -1,0 +1,322 @@
+{
+  "artifact_id": "place_account_hold",
+  "name": "Place account hold",
+  "version": 1,
+  "goal": "Using Member Inquiry, search for member number 102777, open their record, then go to Place Account Hold. Place a hold on share 102777-S0001 with reason code FRAUD and the note 'demo hold'. Continue to the review screen and apply the hold. From the page shown after applying, report the confirmation number, and report as 'hold_status' the complete text shown on the Share line exactly as written.",
+  "target": {
+    "tenant": "meridian",
+    "base_url": "https://web-sample.interface-hiring.com",
+    "route_prefix": ""
+  },
+  "input_params": {
+    "member_id": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    },
+    "share_id": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    },
+    "reason": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    },
+    "notes": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    }
+  },
+  "output_schema": {
+    "confirmation": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    },
+    "hold_status": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    }
+  },
+  "steps": [
+    {
+      "step_id": "s1",
+      "action": "click",
+      "target_name": "Member Inquiry",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "link:Member Inquiry",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Member Inquiry",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Member Inquiry'"
+    },
+    {
+      "step_id": "s2",
+      "action": "type",
+      "target_name": "Value:",
+      "target": [
+        {
+          "strategy": "css_name_attr",
+          "value": "input[name='q']",
+          "confidence": 0.75
+        }
+      ],
+      "target_url": null,
+      "input_ref": "member_id",
+      "literal_value": null,
+      "description": "type 'Value:'"
+    },
+    {
+      "step_id": "s3",
+      "action": "click",
+      "target_name": "Search",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "button:Search",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Search",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members?by=number&q=102777",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Search'"
+    },
+    {
+      "step_id": "s4",
+      "action": "click",
+      "target_name": "Select",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "link:Select",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Select",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members/102777",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Select'"
+    },
+    {
+      "step_id": "s5",
+      "action": "click",
+      "target_name": "Place Account Hold",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "link:Place Account Hold",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Place Account Hold",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members/102777/hold",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Place Account Hold'"
+    },
+    {
+      "step_id": "s6",
+      "action": "type",
+      "target_name": "Notes:",
+      "target": [
+        {
+          "strategy": "label_proximity",
+          "value": "Notes:|input",
+          "confidence": 0.85
+        },
+        {
+          "strategy": "css_name_attr",
+          "value": "input[name='notes']",
+          "confidence": 0.75
+        }
+      ],
+      "target_url": null,
+      "input_ref": "notes",
+      "literal_value": null,
+      "description": "type 'Notes:'"
+    },
+    {
+      "step_id": "s7",
+      "action": "click",
+      "target_name": "Continue",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "button:Continue",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Continue",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members/102777/hold/review",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Continue'"
+    },
+    {
+      "step_id": "s8",
+      "action": "click",
+      "target_name": "Apply Hold",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "button:Apply Hold",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Apply Hold",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members/102777/hold/post",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Apply Hold'"
+    }
+  ],
+  "checkpoint": {
+    "description": "All required outputs (confirmation, hold_status) are visible on this page.",
+    "url_pattern": "/members/{member_id}/hold/post"
+  },
+  "output_extraction": {
+    "confirmation": {
+      "strategy": "table_row_label",
+      "label": "Confirmation",
+      "key_column": null,
+      "key_input_ref": null,
+      "key_literal": null
+    },
+    "hold_status": {
+      "strategy": "table_row_label",
+      "label": "Share",
+      "key_column": null,
+      "key_input_ref": null,
+      "key_literal": null
+    }
+  },
+  "policy": {
+    "allowed_origins": [
+      "https://web-sample.interface-hiring.com"
+    ],
+    "allowed_actions": [
+      "click",
+      "type"
+    ]
+  },
+  "detectors": {
+    "business_outcomes": [
+      {
+        "marker": "No member records matched your search.",
+        "code": "MEMBER_NOT_FOUND",
+        "message": "No member record matched the search criteria.",
+        "http_status": 200,
+        "recovery": null
+      },
+      {
+        "marker": "RECORD NOT FOUND",
+        "code": "MEMBER_NOT_FOUND",
+        "message": "The requested member record does not exist on this host.",
+        "http_status": 404,
+        "recovery": null
+      },
+      {
+        "marker": "SUPERVISOR OVERRIDE REQUIRED",
+        "code": "SUPERVISOR_REQUIRED",
+        "message": "This function requires a supervisor profile. The operator in session is not authorized to complete it.",
+        "http_status": 403,
+        "recovery": null
+      },
+      {
+        "marker": "The transaction could not be validated:",
+        "code": "TRANSACTION_REJECTED",
+        "message": "The transaction was rejected by the host (for example insufficient available balance, or a source share on hold).",
+        "http_status": 400,
+        "recovery": null
+      },
+      {
+        "marker": "TRANSACTION REJECTED",
+        "code": "TRANSACTION_REJECTED",
+        "message": "The transaction could not be completed as entered.",
+        "http_status": 400,
+        "recovery": null
+      },
+      {
+        "marker": "Please correct the following:",
+        "code": "FIELD_VALIDATION_FAILED",
+        "message": "One or more submitted field values were rejected as invalid.",
+        "http_status": 400,
+        "recovery": null
+      }
+    ],
+    "recoverable": [
+      {
+        "marker": "SCHEDULED MAINTENANCE IN PROGRESS",
+        "code": "maintenance_window",
+        "message": "",
+        "http_status": 503,
+        "recovery": {
+          "kind": "click_text",
+          "value": "Continue",
+          "resume": true
+        }
+      },
+      {
+        "marker": "YOUR SESSION HAS TIMED OUT",
+        "code": "session_timeout",
+        "message": "",
+        "http_status": 440,
+        "recovery": {
+          "kind": "reauthenticate",
+          "value": null,
+          "resume": true
+        }
+      }
+    ],
+    "hard_failures": [
+      {
+        "marker": "APPLICATION ERROR",
+        "code": "app_error",
+        "message": "The host reported an unexpected application error.",
+        "http_status": 500,
+        "recovery": null
+      }
+    ]
+  },
+  "stability": null,
+  "created_from_run_id": "20260820T191727Z_63bcc8",
+  "created_at": "2026-08-20T19:17:27.971620Z",
+  "approved": false
+}

@@ -1,0 +1,311 @@
+"""
+Declarative recovery.
+
+The original engine had exactly one way to clear a recoverable condition:
+click a control whose text is literally "Continue", then carry on from
+wherever that landed. That worked on the take-home's mock app because its
+session-expired interstitial returns you to the page you were on.
+
+MERIDIAN CORE breaks both halves of that assumption, and these tests pin
+down the fix:
+
+  - A maintenance interstitial (HTTP 503) does have a "Continue", but it
+    goes to /menu. Clicking it and carrying on would run the rest of the
+    flow against the main menu while reporting a successful recovery.
+  - A session timeout (HTTP 440) has no "Continue" at all. The session is
+    gone; the only recovery is signing on again.
+
+So recovery is now declared per detector -- a RecoveryAction with a kind and
+a `resume` flag -- rather than hardcoded. `resume` re-navigates to the URL
+the flow was on before recovering, which is what stops a recovery from
+silently continuing against the wrong page.
+"""
+
+from __future__ import annotations
+
+from src.artifact.schema import (
+    Artifact,
+    ArtifactStep,
+    Checkpoint,
+    DetectorPattern,
+    ExtractionRule,
+    LocatorCandidate,
+    ParamSpec,
+    RecoveryAction,
+    TargetSpec,
+)
+from src.replay.detectors import detect_recoverable_pattern, detectors_from_target
+from src.replay.engine import _apply_recovery, _error_reference
+
+BASE = "https://web-sample.interface-hiring.com"
+
+MAINTENANCE_PAGE = (
+    "SCHEDULED MAINTENANCE IN PROGRESS\n"
+    "The host is temporarily unavailable while nightly batch posting completes.\n"
+    "This window normally clears within a few moments.\n"
+    "Continue"
+)
+
+TIMEOUT_PAGE = (
+    "YOUR SESSION HAS TIMED OUT\n"
+    "For security, your session ended due to inactivity.\n"
+    "Return to Sign On\n"
+    "NOT SIGNED ON \xa0|\xa0 08/20/2026 17:40:42"
+)
+
+APP_ERROR_PAGE = (
+    "APPLICATION ERROR\n"
+    "An unexpected error occurred while processing your request.\n"
+    "Reference: ERR-B041BFE4\n"
+    "Please contact the Help Desk if the problem persists."
+)
+
+
+# ---- doubles ---------------------------------------------------------------
+
+
+class RecordingLocator:
+    def __init__(self, page, label, found):
+        self.page, self.label, self.found = page, label, found
+
+    def click(self):
+        if not self.found:
+            raise RuntimeError("no such control: " + self.label)
+        self.page.clicked.append(self.label)
+        # Every MERIDIAN interstitial control leaves you somewhere else.
+        self.page.url = BASE + "/menu"
+
+
+class RecoveryPage:
+    def __init__(self, url, controls=("Continue",)):
+        self.url = url
+        self.controls = set(controls)
+        self.clicked = []
+        self.gotos = []
+
+    def get_by_role(self, role, name=None, exact=True):
+        return RecordingLocator(self, name, name in self.controls)
+
+    def get_by_text(self, text, exact=True):
+        return RecordingLocator(self, text, text in self.controls)
+
+    def goto(self, url):
+        self.gotos.append(url)
+        self.url = url
+
+
+class FakeEvidence:
+    def __init__(self):
+        self.events = []
+
+    def log_event(self, event_type, **fields):
+        self.events.append((event_type, fields))
+
+    def kinds(self):
+        return [e for e, _ in self.events]
+
+
+def make_artifact(tenant="meridian"):
+    return Artifact(
+        artifact_id="cap",
+        name="cap",
+        goal="g",
+        target=TargetSpec(tenant=tenant, base_url=BASE, route_prefix=""),
+        input_params={"member_id": ParamSpec()},
+        output_schema={"balance": ParamSpec()},
+        steps=[
+            ArtifactStep(
+                step_id="s1",
+                action="click",
+                target=[LocatorCandidate(strategy="text", value="x")],
+            )
+        ],
+        checkpoint=Checkpoint(description="d", url_pattern="/members/{member_id}"),
+        output_extraction={
+            "balance": ExtractionRule(strategy="table_row_label", label="Balance")
+        },
+        created_from_run_id="r",
+        created_at="2026-08-20T00:00:00Z",
+    )
+
+
+# ---- the taxonomy is read from target config, not from Python --------------
+
+
+def test_meridian_declares_both_recoveries_in_config():
+    detectors = detectors_from_target("meridian")
+    by_code = {p.code: p for p in detectors.recoverable}
+
+    assert by_code["maintenance_window"].recovery.kind == "click_text"
+    assert by_code["maintenance_window"].recovery.value == "Continue"
+    assert by_code["session_timeout"].recovery.kind == "reauthenticate"
+    # Both land elsewhere, so both must re-navigate.
+    assert by_code["maintenance_window"].recovery.resume is True
+    assert by_code["session_timeout"].recovery.resume is True
+
+
+def test_detection_matches_the_real_interstitials():
+    patterns = detectors_from_target("meridian").recoverable
+    assert detect_recoverable_pattern(MAINTENANCE_PAGE, patterns).code == "maintenance_window"
+    assert detect_recoverable_pattern(TIMEOUT_PAGE, patterns).code == "session_timeout"
+    assert detect_recoverable_pattern("MEMBER RECORD\nName:\tAda", patterns) is None
+
+
+def test_an_unconfigured_target_falls_back_rather_than_crashing():
+    assert detectors_from_target("no-such-target") is None
+
+
+# ---- resume semantics ------------------------------------------------------
+
+
+def test_click_recovery_returns_the_flow_to_where_it_was():
+    """The maintenance 'Continue' goes to /menu; resume must undo that."""
+    page = RecoveryPage(BASE + "/members/100234/transfer")
+    pattern = DetectorPattern(
+        marker="SCHEDULED MAINTENANCE IN PROGRESS",
+        code="maintenance_window",
+        recovery=RecoveryAction(kind="click_text", value="Continue", resume=True),
+    )
+
+    _apply_recovery(page, pattern, make_artifact(), FakeEvidence())
+
+    assert page.clicked == ["Continue"]
+    assert page.gotos == [BASE + "/members/100234/transfer"]
+    assert page.url == BASE + "/members/100234/transfer"
+
+
+def test_without_resume_the_flow_continues_from_wherever_the_click_landed():
+    page = RecoveryPage(BASE + "/members/100234/transfer")
+    pattern = DetectorPattern(
+        marker="m",
+        code="c",
+        recovery=RecoveryAction(kind="click_text", value="Continue", resume=False),
+    )
+
+    _apply_recovery(page, pattern, make_artifact(), FakeEvidence())
+
+    assert page.clicked == ["Continue"]
+    assert page.gotos == []
+    assert page.url == BASE + "/menu"
+
+
+def test_resume_does_not_re_navigate_when_the_click_kept_us_in_place():
+    """No redundant goto when the interstitial returns you where you were."""
+    page = RecoveryPage(BASE + "/menu")
+    pattern = DetectorPattern(
+        marker="m",
+        code="c",
+        recovery=RecoveryAction(kind="click_text", value="Continue", resume=True),
+    )
+
+    _apply_recovery(page, pattern, make_artifact(), FakeEvidence())
+
+    assert page.gotos == []
+
+
+# ---- reauthenticate --------------------------------------------------------
+
+
+def test_timeout_recovery_signs_on_again_then_resumes(monkeypatch):
+    """The only recovery for a dead session, and it needs the target seam."""
+    calls = {}
+
+    def fake_session(page, artifact, chaos="none"):
+        calls["target"] = artifact.target.tenant
+        page.url = BASE + "/menu"
+        return page.url
+
+    monkeypatch.setattr("src.replay.engine._establish_session", fake_session)
+
+    page = RecoveryPage(BASE + "/members/100234/transfer", controls=())
+    evidence = FakeEvidence()
+    pattern = DetectorPattern(
+        marker="YOUR SESSION HAS TIMED OUT",
+        code="session_timeout",
+        recovery=RecoveryAction(kind="reauthenticate", resume=True),
+    )
+
+    _apply_recovery(page, pattern, make_artifact(), evidence)
+
+    assert calls["target"] == "meridian"
+    assert page.clicked == []  # there is no control to click on that page
+    assert page.gotos == [BASE + "/members/100234/transfer"]
+    assert "recovery_reauthenticated" in evidence.kinds()
+    assert "recovery_resumed" in evidence.kinds()
+
+
+# ---- the legacy path must keep working -------------------------------------
+
+
+def test_a_pattern_with_no_declared_recovery_keeps_the_original_behaviour():
+    """Artifacts distilled before RecoveryAction existed still recover."""
+    page = RecoveryPage(BASE + "/desk/member/4521")
+    pattern = DetectorPattern(marker="Your session has expired.", code="session_timeout")
+
+    assert _apply_recovery(page, pattern, make_artifact("a"), FakeEvidence()) is True
+    assert page.clicked == ["Continue"]
+    assert page.gotos == []  # legacy behaviour never re-navigated
+
+
+def test_mock_target_recovery_is_declared_not_to_resume():
+    """Its interstitial returns you where you were; re-navigating would be wrong."""
+    detectors = detectors_from_target("mock")
+    assert detectors.recoverable[0].recovery.resume is False
+
+
+# ---- the host's own error reference ----------------------------------------
+
+
+def test_application_error_reference_is_recovered_for_the_failure_detail():
+    assert _error_reference(APP_ERROR_PAGE) == "ERR-B041BFE4"
+
+
+def test_error_reference_is_absent_without_one():
+    assert _error_reference(MAINTENANCE_PAGE) is None
+
+
+# ---------------------------------------------------------------------------
+# An irreversible step performed by a human must still be tiered irreversible
+# ---------------------------------------------------------------------------
+
+
+def test_a_human_performed_step_keeps_its_irreversible_tier():
+    """The step's recorded URL decides whether replay stops for a human.
+
+    Discovery records this step as performed-by-human after a handoff. If it
+    recorded where the browser ENDED UP rather than where the control POINTS,
+    replay would classify it by the review screen -- which is safe -- and post
+    the transaction unattended. The guarantee would be gone, and nothing about
+    the artifact would look wrong.
+    """
+    from src.guardrails.engine import PolicyEngine
+    from src.guardrails.result import PolicyDecision, RiskTier
+
+    policy = PolicyEngine()
+    base = "https://web-sample.interface-hiring.com"
+
+    # what the bug recorded
+    assert policy._risk_tier_for_path("/members/100234/transfer/review") == RiskTier.SAFE
+    # what it must record
+    check = policy.check_action(
+        "click",
+        base + "/members/100234/transfer/post",
+        confirmed=True,
+        artifact_approved=True,
+    )
+    assert check.risk_tier == RiskTier.IRREVERSIBLE
+    assert check.decision == PolicyDecision.REQUIRE_CONFIRMATION
+
+
+def test_every_meridian_posting_endpoint_is_irreversible():
+    """Guards the allowlist against a later edit quietly demoting one."""
+    from src.guardrails.engine import PolicyEngine
+    from src.guardrails.result import RiskTier
+
+    policy = PolicyEngine()
+    for path in (
+        "/members/100234/transfer/post",
+        "/members/100234/open-share/post",
+        "/members/100234/hold/post",
+    ):
+        assert policy._risk_tier_for_path(path) == RiskTier.IRREVERSIBLE, path

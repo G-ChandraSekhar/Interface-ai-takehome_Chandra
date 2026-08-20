@@ -1,0 +1,8 @@
+{"ts": "2026-08-20T19:55:18.613630+00:00", "event": "replay_started", "artifact_id": "check_member_balance", "version": 1, "params": {"member_id": "100234", "share_id": "100234-S0070"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-20T19:55:19.194509+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "maintenance"}
+{"ts": "2026-08-20T19:55:19.536988+00:00", "event": "fault_injection_armed", "kind": "maintenance", "error_rate": 0.0}
+{"ts": "2026-08-20T19:55:49.894073+00:00", "event": "recovery_resumed", "url": "https://web-sample.interface-hiring.com/members"}
+{"ts": "2026-08-20T19:55:49.894807+00:00", "event": "recovery_applied", "step_id": "s1", "condition": "maintenance_window", "kind": "click_text", "http_status": 503}
+{"ts": "2026-08-20T19:55:49.907406+00:00", "event": "locator_resolution_failed", "step_id": "s2", "attempts": [{"tier": 1, "strategy": "css_name_attr", "value": "input[name='q']", "ok": false, "reason": "no_match", "matched": 0}]}
+{"ts": "2026-08-20T19:55:49.977533+00:00", "event": "replay_finished", "status": "failure"}
+{"ts": "2026-08-20T19:55:50.127584+00:00", "event": "fault_injection_cleared"}

@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Capability Console — MERIDIAN CORE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* ------------------------------------------------------------------
+     A control plane above a legacy host.
+
+     Not a pastiche of MERIDIAN's navy-and-function-keys -- imitating the
+     target would be a costume. Not a generic dashboard either. The visual
+     idea is the tension the system itself embodies: a modern supervisory
+     layer watching a 1980s console, so the type is contemporary and the
+     data is monospaced, because every value on this page came off a
+     fixed-width terminal screen.
+
+     Colour carries the three-way result contract, which is the central
+     idea of the whole system. Five states, five hues, used nowhere else.
+     ------------------------------------------------------------------ */
+  :root {
+    --ink:        #0E1319;
+    --surface:    #161D26;
+    --surface-2:  #1D2530;
+    --line:       #2A3441;
+    --paper:      #E6EAEF;
+    --muted:      #8494A6;
+    --dim:        #5A6879;
+
+    --success:    #4FB286;
+    --outcome:    #E0A458;
+    --recovered:  #6C9BCF;
+    --failure:    #D96A6A;
+    --escalated:  #B084CC;
+
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ink);
+    color: var(--paper);
+    font-family: var(--sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: inherit; }
+
+  /* --- masthead ---------------------------------------------------- */
+  header {
+    border-bottom: 1px solid var(--line);
+    padding: 18px 24px 14px;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    margin: 0;
+  }
+  .sub {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--dim);
+    letter-spacing: 0.04em;
+  }
+  .spacer { flex: 1; }
+
+  /* Scope switch. The archive is not hidden -- superseded versions and runs
+     against the original target are still evidence -- but the working set is
+     what a reviewer should land on. */
+  .scope { display: flex; gap: 0; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+  .scope button {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 4px 10px; border: 0; cursor: pointer;
+    background: none; color: var(--muted);
+  }
+  .scope button[aria-pressed="true"] { background: var(--surface-2); color: var(--paper); }
+  .scope button:focus-visible { outline: 2px solid var(--recovered); outline-offset: -2px; }
+
+  /* Status legend as a first-class object: the result taxonomy is the
+     product's central claim, so it gets stated rather than inferred. */
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; }
+  .legend span {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .legend i {
+    width: 8px; height: 8px; border-radius: 2px;
+    display: inline-block;
+    font-style: normal;
+  }
+
+  /* --- layout ------------------------------------------------------ */
+  main {
+    display: grid;
+    grid-template-columns: minmax(300px, 380px) 1fr;
+    height: calc(100vh - 62px);
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; height: auto; }
+    .pane-left { max-height: 50vh; }
+  }
+
+  .pane-left {
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+  }
+  .pane-right { overflow-y: auto; padding: 24px 28px 60px; }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--dim);
+    padding: 16px 20px 8px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* --- capability catalog ------------------------------------------ */
+  .cap {
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--line);
+    cursor: default;
+  }
+  .cap-name { font-weight: 500; font-size: 13px; }
+  .cap-meta {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+  .pill {
+    font-family: var(--mono);
+    font-size: 9.5px;
+    letter-spacing: 0.05em;
+    padding: 1px 6px;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+  }
+
+  /* --- run list ----------------------------------------------------
+     Status is a left rule, not a badge. The question a reviewer scans
+     for is "which of the outcomes was this", so it reads down the
+     column as a stripe rather than needing to be found per row. */
+  .run {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    border-left: 3px solid transparent;
+    padding: 11px 20px 11px 17px;
+    cursor: pointer;
+    color: inherit;
+    font: inherit;
+    transition: background 90ms ease;
+  }
+  .run:hover { background: var(--surface); }
+  .run.active { background: var(--surface-2); }
+  .run:focus-visible { outline: 2px solid var(--recovered); outline-offset: -2px; }
+
+  .run-top { display: flex; align-items: baseline; gap: 8px; }
+  .run-cap {
+    font-weight: 500;
+    font-size: 13px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .run-id {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--dim);
+    margin-top: 2px;
+  }
+  .run-status {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+
+  /* --- detail ------------------------------------------------------ */
+  .detail-head { border-bottom: 1px solid var(--line); padding-bottom: 16px; margin-bottom: 20px; }
+  .detail-title { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .detail-id { font-family: var(--mono); font-size: 11px; color: var(--dim); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin: 16px 0 24px; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 5px; padding: 11px 13px; }
+  .card h4 {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--dim); margin: 0 0 6px; font-weight: 500;
+  }
+  .kv { font-family: var(--mono); font-size: 12px; }
+  .kv div { display: flex; gap: 8px; padding: 1.5px 0; }
+  .kv b { color: var(--muted); font-weight: 400; min-width: 92px; }
+  .kv span { color: var(--paper); word-break: break-word; }
+
+  h3 {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--dim); font-weight: 500;
+    margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line);
+  }
+
+  /* --- the signature: escalation as a measured pause ----------------
+     A run that stopped for ninety seconds because a person had to look
+     at a screen and decide is not a slow run. The gap IS the evidence
+     that a human was in the loop, so it's drawn to scale rather than
+     reported as a field. */
+  .esc {
+    border: 1px solid var(--escalated);
+    border-radius: 5px;
+    background: rgba(176,132,204,0.06);
+    padding: 14px 16px;
+    margin-bottom: 12px;
+  }
+  .esc-reason { font-size: 13px; margin-bottom: 12px; }
+  .esc-thread { display: flex; align-items: stretch; gap: 12px; }
+  .esc-rail { width: 2px; background: var(--escalated); border-radius: 1px; position: relative; }
+  .esc-rail::before, .esc-rail::after {
+    content: ''; position: absolute; left: -3px; width: 8px; height: 8px;
+    border-radius: 50%; background: var(--escalated);
+  }
+  .esc-rail::before { top: 0; }
+  .esc-rail::after { bottom: 0; }
+  .esc-steps { flex: 1; }
+  .esc-step {
+    font-family: var(--mono); font-size: 11px;
+    display: flex; justify-content: space-between; gap: 12px;
+  }
+  .esc-step + .esc-step { margin-top: 6px; }
+  .esc-step b { font-weight: 400; color: var(--muted); }
+  .esc-gap {
+    font-family: var(--mono); font-size: 11px; color: var(--escalated);
+    padding: 8px 0; font-style: normal;
+  }
+  .esc-gap strong { font-size: 15px; font-weight: 700; }
+
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 11.5px; }
+  th {
+    text-align: left; font-weight: 500; color: var(--dim); font-size: 9.5px;
+    letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line);
+  }
+  td { padding: 5px 10px 5px 0; border-bottom: 1px solid var(--line); color: var(--paper); }
+  td.tier1 { color: var(--success); }
+  td.tierN { color: var(--outcome); }
+
+  .events { max-height: 320px; overflow-y: auto; font-family: var(--mono); font-size: 11px; }
+  .ev { display: flex; gap: 10px; padding: 2.5px 0; border-bottom: 1px solid rgba(42,52,65,0.5); }
+  .ev time { color: var(--dim); white-space: nowrap; }
+  .ev b { font-weight: 500; }
+
+  .shots { display: flex; gap: 12px; flex-wrap: wrap; }
+  .shots figure { margin: 0; width: 240px; }
+  .shots img { width: 100%; border: 1px solid var(--line); border-radius: 4px; display: block; background: #fff; }
+  .shots figcaption { font-family: var(--mono); font-size: 10px; color: var(--dim); margin-top: 5px; }
+
+  .empty { color: var(--muted); font-size: 13px; padding: 40px 0; max-width: 42ch; }
+  .empty b { color: var(--paper); display: block; margin-bottom: 6px; font-size: 15px; }
+
+  .fail-box {
+    border: 1px solid var(--failure); border-radius: 5px;
+    background: rgba(217,106,106,0.06); padding: 12px 14px;
+    font-family: var(--mono); font-size: 11.5px;
+  }
+  .out-box {
+    border: 1px solid var(--outcome); border-radius: 5px;
+    background: rgba(224,164,88,0.06); padding: 12px 14px;
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-type="module">
+const { useState, useEffect } = React;
+
+const STATUS = {
+  success:          { color: 'var(--success)',   label: 'success' },
+  escalated:        { color: 'var(--escalated)', label: 'escalated' },
+  recovered:        { color: 'var(--recovered)', label: 'recovered' },
+  business_outcome: { color: 'var(--outcome)',   label: 'business outcome' },
+  blocked:          { color: 'var(--outcome)',   label: 'blocked' },
+  failure:          { color: 'var(--failure)',   label: 'failure' },
+  stuck:            { color: 'var(--failure)',   label: 'stuck' },
+  unknown:          { color: 'var(--dim)',       label: 'unknown' },
+};
+const statusOf = s => STATUS[s] || STATUS.unknown;
+
+const clock = ts => ts ? new Date(ts).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '';
+const day   = ts => ts ? new Date(ts).toLocaleDateString([], {month:'short', day:'numeric'}) : '';
+const dur   = ms => ms == null ? '—' : ms < 1000 ? ms + 'ms' : (ms/1000).toFixed(1) + 's';
+
+// A replay names its artifact; a discovery run only has the goal it was
+// given, which is a sentence rather than a title. Truncating at the first
+// clause keeps the rail scannable -- the full text is in the detail pane
+// and on hover.
+const label = r => {
+  const t = r.capability || r.run_id;
+  if (r.kind !== 'discovery') return t;
+  const first = t.split(/[.,]/)[0];
+  return first.length > 46 ? first.slice(0, 46) + '…' : first;
+};
+
+function Legend() {
+  return (
+    <div className="legend">
+      {['success','escalated','recovered','business_outcome','failure'].map(k => (
+        <span key={k}><i style={{background: statusOf(k).color}} />{statusOf(k).label}</span>
+      ))}
+    </div>
+  );
+}
+
+function Escalation({ e }) {
+  return (
+    <div className="esc">
+      <div className="esc-reason">{e.reason || 'A human was required.'}</div>
+      <div className="esc-thread">
+        <div className="esc-rail" />
+        <div className="esc-steps">
+          <div className="esc-step"><b>paused, human requested</b><span>{clock(e.requested_at)}</span></div>
+          <div className="esc-gap">
+            <strong>{e.seconds_total}s</strong> with a person in the loop
+            {e.seconds_until_taken != null && <> · {e.seconds_until_taken}s before control was taken</>}
+          </div>
+          <div className="esc-step"><b>control handed back</b><span>{clock(e.returned_at)}</span></div>
+        </div>
+      </div>
+      {e.step_id && <div className="esc-step" style={{marginTop:10}}><b>step</b><span>{e.step_id}</span></div>}
+    </div>
+  );
+}
+
+function Detail({ runId }) {
+  const [run, setRun] = useState(null);
+
+  useEffect(() => {
+    if (!runId) { setRun(null); return; }
+    setRun(null);
+    fetch('/runs/' + runId).then(r => r.json()).then(setRun).catch(() => setRun(false));
+  }, [runId]);
+
+  if (!runId) return (
+    <div className="empty">
+      <b>Pick a run.</b>
+      Every discovery and replay writes an evidence bundle. This reads those
+      bundles directly, so what you see here is the same trail an auditor
+      would be handed.
+    </div>
+  );
+  if (run === null) return <div className="empty">Reading evidence…</div>;
+  if (run === false) return <div className="empty"><b>That run could not be read.</b>Its evidence directory may have been removed.</div>;
+
+  const st = statusOf(run.status);
+  const entries = o => Object.entries(o || {});
+
+  return (
+    <div>
+      <div className="detail-head">
+        <h2 className="detail-title">{run.capability || 'Run'}</h2>
+        <div className="detail-id">{run.run_id}</div>
+      </div>
+
+      <div className="grid">
+        <div className="card">
+          <h4>Outcome</h4>
+          <div className="kv">
+            <div><b>status</b><span style={{color: st.color}}>{st.label}</span></div>
+            <div><b>engine</b><span>{run.engine_status || '—'}</span></div>
+            <div><b>duration</b><span>{dur(run.duration_ms)}</span></div>
+            <div><b>started</b><span>{day(run.started_at)} {clock(run.started_at)}</span></div>
+          </div>
+        </div>
+        <div className="card">
+          <h4>Inputs</h4>
+          <div className="kv">
+            {entries(run.params).length === 0 && <div><span style={{color:'var(--dim)'}}>none</span></div>}
+            {entries(run.params).map(([k,v]) => <div key={k}><b>{k}</b><span>{String(v)}</span></div>)}
+          </div>
+        </div>
+        <div className="card">
+          <h4>Outputs</h4>
+          <div className="kv">
+            {entries(run.outputs).length === 0 && <div><span style={{color:'var(--dim)'}}>none</span></div>}
+            {entries(run.outputs).map(([k,v]) => <div key={k}><b>{k}</b><span>{String(v)}</span></div>)}
+          </div>
+        </div>
+      </div>
+
+      {run.outcome_code && (
+        <div className="out-box">
+          <div style={{fontFamily:'var(--mono)', fontSize:11, color:'var(--outcome)'}}>{run.outcome_code}</div>
+          <div style={{marginTop:4}}>{run.outcome_message}</div>
+        </div>
+      )}
+
+      {run.failure && (
+        <div className="fail-box">
+          <div style={{color:'var(--failure)'}}>{run.failure.class}{run.failure.step_id ? ' · ' + run.failure.step_id : ''}</div>
+          <div style={{marginTop:6}}><span style={{color:'var(--muted)'}}>expected </span>{run.failure.expected}</div>
+          <div><span style={{color:'var(--muted)'}}>observed </span>{run.failure.observed}</div>
+        </div>
+      )}
+
+      {run.escalations && run.escalations.length > 0 && (
+        <>
+          <h3>Human in the loop</h3>
+          {run.escalations.map((e,i) => <Escalation key={i} e={e} />)}
+        </>
+      )}
+
+      {run.step_telemetry && run.step_telemetry.length > 0 && (
+        <>
+          <h3>Locator resolution</h3>
+          <table>
+            <thead><tr><th>step</th><th>tier</th><th>strategy</th><th>recovered</th></tr></thead>
+            <tbody>
+              {run.step_telemetry.map(t => (
+                <tr key={t.step_id}>
+                  <td>{t.step_id}</td>
+                  <td className={t.resolved_tier === 1 ? 'tier1' : 'tierN'}>{t.resolved_tier}</td>
+                  <td>{t.resolved_strategy}</td>
+                  <td>{t.recovery_applied ? 'yes' : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      {run.screenshots && run.screenshots.length > 0 && (
+        <>
+          <h3>Screenshots</h3>
+          <div className="shots">
+            {run.screenshots.map(name => (
+              <figure key={name}>
+                <a href={'/runs/' + run.run_id + '/screenshots/' + name} target="_blank" rel="noreferrer">
+                  <img src={'/runs/' + run.run_id + '/screenshots/' + name} alt={name} loading="lazy" />
+                </a>
+                <figcaption>{name}</figcaption>
+              </figure>
+            ))}
+          </div>
+        </>
+      )}
+
+      {run.events && (
+        <>
+          <h3>Event log · {run.events.length}</h3>
+          <div className="events">
+            {run.events.map((e,i) => (
+              <div className="ev" key={i}>
+                <time>{clock(e.ts)}</time>
+                <b>{e.event}</b>
+                <span style={{color:'var(--dim)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>
+                  {e.step_id || e.reason || e.status || e.url || e.page_url || ''}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+const SCOPES = {
+  meridian: { label: 'MERIDIAN', caps: '?target=meridian&latest_only=true', runs: '&target=meridian' },
+  all:      { label: 'All',      caps: '',                                  runs: '' },
+};
+
+function App() {
+  const [caps, setCaps] = useState([]);
+  const [runs, setRuns] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [scope, setScope] = useState('meridian');
+
+  useEffect(() => {
+    const s = SCOPES[scope];
+    const load = () => {
+      fetch('/capabilities' + s.caps).then(r => r.json()).then(d => setCaps(d.capabilities || []));
+      fetch('/runs?limit=100' + s.runs).then(r => r.json()).then(d => setRuns(d.runs || []));
+    };
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [scope]);
+
+  return (
+    <>
+      <header>
+        <h1>Capability Console</h1>
+        <span className="sub">{caps.length} capabilities · {runs.length} runs</span>
+        <div className="scope">
+          {Object.entries(SCOPES).map(([k,v]) => (
+            <button key={k} aria-pressed={scope === k} onClick={() => { setScope(k); setSelected(null); }}>
+              {v.label}
+            </button>
+          ))}
+        </div>
+        <span className="spacer" />
+        <Legend />
+      </header>
+      <main>
+        <div className="pane-left">
+          <div className="section-label"><span>Capabilities</span><span>{caps.length}</span></div>
+          {caps.map(c => (
+            <div className="cap" key={c.artifact_id + c.version}>
+              <div className="cap-name">{c.artifact_id} <span className="pill">v{c.version}</span></div>
+              <div className="cap-meta">
+                {Object.keys(c.function.parameters.properties).join(' · ') || 'no parameters'}
+                {' → '}
+                {Object.keys(c.output_schema).join(' · ')}
+              </div>
+            </div>
+          ))}
+
+          {caps.length === 0 && (
+            <div style={{padding:'8px 20px 16px', color:'var(--muted)', fontSize:12.5}}>
+              No capabilities recorded against this target yet.
+            </div>
+          )}
+
+          <div className="section-label"><span>Runs</span><span>newest first</span></div>
+          {runs.map(r => {
+            const st = statusOf(r.status);
+            return (
+              <button
+                className={'run' + (selected === r.run_id ? ' active' : '')}
+                key={r.run_id}
+                style={{borderLeftColor: st.color}}
+                onClick={() => setSelected(r.run_id)}
+              >
+                <div className="run-top">
+                  <span className="run-cap" title={r.capability || r.run_id}>
+                    {label(r)}
+                  </span>
+                  <span className="run-status" style={{color: st.color}}>{st.label}</span>
+                </div>
+                <div className="run-id">{r.kind} · {clock(r.started_at)} · {dur(r.duration_ms)}
+                  {r.escalations.length > 0 && ' · human ' + r.escalations[0].seconds_total + 's'}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+        <div className="pane-right"><Detail runId={selected} /></div>
+      </main>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script>
+  // Babel must transform the JSX block above only after React is present.
+  Babel.transformScriptTags();
+</script>
+</body>
+</html>

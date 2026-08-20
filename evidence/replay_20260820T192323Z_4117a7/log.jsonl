@@ -1,0 +1,2 @@
+{"ts": "2026-08-20T19:23:23.920270+00:00", "event": "replay_started", "artifact_id": "lookup_member_savings_balance", "version": 1, "params": {}}
+{"ts": "2026-08-20T19:23:23.920355+00:00", "event": "replay_denied", "reason": "missing required params: ['member_id']"}

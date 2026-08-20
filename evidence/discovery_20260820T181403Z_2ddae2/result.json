@@ -1,0 +1,14 @@
+{
+  "status": "success",
+  "message": "Located the member record for member number 100234. The member's full name is Lovelace, Ada and the balance for share 100234-S0070 is $2,234.55.",
+  "outputs": {
+    "member_name": "***REDACTED***",
+    "share_balance": "$2,234.55"
+  },
+  "step_count": 6,
+  "goal": "Using Member Inquiry, search for member number 100234 and open that member's record. From the member record page, report the member's full name and the balance shown for share 100234-S0070.",
+  "params": {
+    "member_id": "100234",
+    "share_id": "100234-S0070"
+  }
+}

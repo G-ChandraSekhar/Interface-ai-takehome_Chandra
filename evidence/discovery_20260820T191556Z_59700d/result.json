@@ -1,0 +1,16 @@
+{
+  "status": "success",
+  "message": "Successfully placed a hold on share 102777-S0001 for reason FRAUD with note 'demo hold'. The confirmation number is CN480059 and the held share is 102777-S0001.",
+  "outputs": {
+    "confirmation": "CN480059",
+    "share_id": "102777-S0001"
+  },
+  "step_count": 10,
+  "goal": "Using Member Inquiry, search for member number 102777, open their record, then go to Place Account Hold. Place a hold on share 102777-S0001 with reason code FRAUD and the note 'demo hold'. Continue to the review screen and apply the hold. From the page shown after applying, report the confirmation number and the share that was held.",
+  "params": {
+    "member_id": "102777",
+    "share_id": "102777-S0001",
+    "reason": "FRAUD",
+    "notes": "demo hold"
+  }
+}

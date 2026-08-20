@@ -40,9 +40,13 @@ from src.telemetry.record import (
     load_records,
 )
 
+# tenant/target id -> (base_url, route_prefix). The tenant letters are the
+# original mock app; "meridian" is the adaptation target. Both resolve to a
+# config/targets/*.yaml through src/targets.py -- see load_target().
 TENANT_BASE_URLS = {
     "a": ("http://localhost:4478", "/desk"),
     "b": ("http://localhost:4479", "/operations"),
+    "meridian": ("https://web-sample.interface-hiring.com", ""),
 }
 
 
@@ -66,6 +70,7 @@ def cmd_discover(args):
         route_prefix=route_prefix,
         params=params,
         required_outputs=args.output or [],
+        target_id=args.tenant,
         mutate_confirmed=args.mutate,
         irreversible_confirmed=args.confirm_irreversible,
         mock_auth=not args.no_mock_auth,
@@ -142,6 +147,7 @@ def cmd_replay(args):
         mock_auth=not args.no_mock_auth,
         headless=args.headless,
         chaos=args.chaos,
+        error_rate=args.error_rate,
         handoff=args.handoff,
         console_port=args.console_port,
     )
@@ -293,7 +299,12 @@ def main():
 
     p_discover = sub.add_parser("discover", help="Run a live LLM-driven discovery capture")
     p_discover.add_argument("--goal", required=True)
-    p_discover.add_argument("--tenant", choices=["a", "b"], default="a")
+    p_discover.add_argument(
+        "--tenant",
+        choices=sorted(TENANT_BASE_URLS),
+        default="a",
+        help="which target console to discover against",
+    )
     p_discover.add_argument("--param", action="append", help="key=value, repeatable")
     p_discover.add_argument("--output", action="append", help="required output name, repeatable")
     p_discover.add_argument("--mutate", action="store_true", help="allow mutating-tier actions")
@@ -339,8 +350,29 @@ def main():
     p_replay.add_argument(
         "--chaos",
         default="none",
-        choices=["none", "session_timeout", "error500", "supervisor", "slow"],
-        help="deterministic fault to inject for this replay run",
+        choices=[
+            "none",
+            # the original mock target's modes
+            "session_timeout", "error500", "supervisor", "slow",
+            # MERIDIAN's, driven through its own System Settings screen
+            "validation", "notfound", "permission", "timeout", "maintenance", "server",
+        ],
+        help=(
+            "force a fault for this replay run. On MERIDIAN this is set on the "
+            "host's own settings screen and fires on EVERY request, so recovery "
+            "retries within its budget and then fails cleanly -- use --error-rate "
+            "for a transient fault that recovery can actually clear."
+        ),
+    )
+    p_replay.add_argument(
+        "--error-rate",
+        type=float,
+        default=0.0,
+        help=(
+            "0.0-1.0 chance of a random fault per posting action, set on the "
+            "target's own controls. A transient fault, so this is what "
+            "demonstrates recovery succeeding rather than exhausting."
+        ),
     )
     p_replay.add_argument("--artifacts-dir", default="artifacts")
     p_replay.add_argument(

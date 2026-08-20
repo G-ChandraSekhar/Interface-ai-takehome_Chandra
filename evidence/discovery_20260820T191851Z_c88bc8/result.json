@@ -1,0 +1,16 @@
+{
+  "status": "success",
+  "message": "The account hold was successfully placed. Confirmation number CN480063 was obtained, and the status for the share is '102777-S0001 is now HOLD' as shown on the confirmation page.",
+  "outputs": {
+    "confirmation": "CN480063",
+    "hold_status": "102777-S0001 is now HOLD"
+  },
+  "step_count": 12,
+  "goal": "Using Member Inquiry, search for member number 102777, open their record, then go to Place Account Hold. On that form you must explicitly set every field yourself, even where a value already appears selected: select share 102777-S0001 in the Share dropdown, select LEGAL in the Reason Code dropdown, and type 'demo hold' in Notes. Then continue to the review screen and apply the hold. From the page shown after applying, report the confirmation number, and report as 'hold_status' the complete text shown on the Share line exactly as written.",
+  "params": {
+    "member_id": "102777",
+    "share_id": "102777-S0001",
+    "reason": "LEGAL",
+    "notes": "demo hold"
+  }
+}

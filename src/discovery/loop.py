@@ -31,7 +31,7 @@ from pathlib import Path
 
 from playwright.sync_api import sync_playwright
 
-from src.artifact.extract import find_label_for_value
+from src.artifact.extract import locate_value
 from src.discovery.digest import build_observation
 from src.discovery.evidence import EvidenceWriter
 from src.discovery.llm_openai import OpenAIDiscoveryClient
@@ -41,6 +41,7 @@ from src.escalation.controller import HandoffController
 from src.guardrails.engine import PolicyEngine
 from src.guardrails.redact import REDACTED_PLACEHOLDER, redact_value
 from src.guardrails.result import PolicyDecision
+from src.targets import authenticate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,13 +55,6 @@ class DiscoveryResult:
     message: str = ""
 
 
-def _mock_login(page, base_url: str, route_prefix: str):
-    page.goto(f"{base_url}{route_prefix}/login")
-    page.fill("input[name='username']", "teller1")
-    page.fill("input[name='password']", "training-only")
-    page.click("button[type='submit']")
-
-
 def run_discovery(
     *,
     goal: str,
@@ -68,6 +62,7 @@ def run_discovery(
     route_prefix: str,
     params: dict,
     required_outputs: list[str],
+    target_id: str = "mock",
     mutate_confirmed: bool = False,
     irreversible_confirmed: bool = False,
     mock_auth: bool = True,
@@ -99,6 +94,7 @@ def run_discovery(
         route_prefix=route_prefix,
         params=params,
         required_outputs=required_outputs,
+        target=target_id,
         model=llm.model,
     )
 
@@ -131,8 +127,8 @@ def run_discovery(
         handoff_controller = HandoffController(evidence, page=page) if handoff else None
 
         if mock_auth:
-            _mock_login(page, base_url, route_prefix)
-            evidence.log_event("mock_auth_completed", url=page.url)
+            authenticate(page, target_id, base_url=base_url, route_prefix=route_prefix)
+            evidence.log_event("session_established", url=page.url, target=target_id)
 
         def escalate(reason: str) -> bool:
             """Pauses for a human operator if handoff is enabled and returns
@@ -250,6 +246,10 @@ def run_discovery(
                 )
 
                 logged_args = dict(tool_call.arguments)
+                if tool_call.name == "select" and result.canonical_value:
+                    # Record the option's stable value rather than the
+                    # visible label the model picked -- see tools.py.
+                    logged_args["option_text"] = result.canonical_value
                 if tool_call.name == "type" and "ref" in logged_args:
                     el = observation.elements.get(logged_args["ref"])
                     if el and el.name.lower() in policy.sensitive_field_names:
@@ -299,6 +299,65 @@ def run_discovery(
                 if result.needs_human:
                     if handoff_controller is not None:
                         escalate(result.human_reason or "Irreversible action requires a human.")
+
+                        # The agent was refused this action and a human
+                        # performed it instead -- but it IS a step of the
+                        # capability, and the artifact has to contain it.
+                        #
+                        # Without this the distiller drops it (it filters on
+                        # tool_ok, and the agent's own attempt failed), and
+                        # replay would walk to the review screen, find its
+                        # checkpoint unmet, and fail -- never pausing for a
+                        # human, because the step it is supposed to pause at
+                        # would not be in the artifact. The locator ladder
+                        # recorded here is the one the agent resolved before
+                        # policy stopped it, which is exactly the ladder
+                        # replay needs to find the same control again.
+                        #
+                        # Recording it does not weaken the guarantee: the
+                        # step carries its own irreversible route, so replay
+                        # re-derives the same tier from policy and stops
+                        # there too. What the artifact stores is where a
+                        # human is required, not permission to skip one.
+                        # page_url here must be the click's DESTINATION,
+                        # not wherever the browser happens to sit once the
+                        # human has finished. The distiller reads this field
+                        # as a click's target_url, and replay classifies risk
+                        # by that URL -- so recording the review screen
+                        # instead of the post endpoint would tier this step
+                        # SAFE and post the transaction unattended, defeating
+                        # the guarantee this whole path exists to enforce.
+                        # The destination is known independently of what the
+                        # human did: it is the control's own href/action,
+                        # captured at observation time.
+                        blocked_el = observation.elements.get(
+                            tool_call.arguments.get("ref")
+                        )
+                        destination = (
+                            blocked_el.target_url
+                            if blocked_el and blocked_el.target_url
+                            else page.url
+                        )
+                        evidence.log_step(
+                            step_number=step_count,
+                            observation_text=observation.text,
+                            assistant_content=response.content,
+                            tool_name=tool_call.name,
+                            tool_args=logged_args,
+                            tool_result_message=(
+                                "Performed by a human operator after handoff; the "
+                                "agent was refused this action by policy."
+                            ),
+                            tool_ok=True,
+                            page_url=destination,
+                            target_name=target_name,
+                            target_candidates=target_candidates,
+                        )
+                        evidence.log_event(
+                            "irreversible_step_performed_by_human",
+                            step_id_hint=target_name,
+                            page_url=page.url,
+                        )
                         messages.append(
                             {
                                 "role": "user",
@@ -342,7 +401,7 @@ def run_discovery(
                     # full page text it saw it on, so we can look up which
                     # label sat next to that value -- this becomes the
                     # artifact's extraction rule for this output (Phase 4).
-                    extraction_label = find_label_for_value(
+                    extraction_rule = locate_value(
                         observation.page_text, str(result.output_value)
                     )
                     # The in-memory `marked_outputs` above stays raw -- the
@@ -362,7 +421,8 @@ def run_discovery(
                         name=result.output_name,
                         value=logged_value,
                         page_url=page.url,
-                        extraction_label=extraction_label,
+                        extraction_label=(extraction_rule or {}).get("label"),
+                        extraction_rule=extraction_rule,
                     )
 
                 if result.is_finish:

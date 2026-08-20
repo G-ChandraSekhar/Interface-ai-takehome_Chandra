@@ -87,3 +87,53 @@ def detect_hard_failure(page_text: str, patterns=None) -> Optional[FailureClass]
         if marker in page_text:
             return failure_class
     return None
+
+# ---------------------------------------------------------------------------
+# Target-configured defaults
+# ---------------------------------------------------------------------------
+#
+# The marker lists above are the ORIGINAL target's copy, kept as a last-resort
+# fallback so artifacts distilled before targets existed still classify. Every
+# target now declares its own taxonomy in config/targets/<id>.yaml, which is
+# what makes the three-way contract portable: a new vendor console is a YAML
+# file, not an edit to this module.
+
+def detectors_from_target(target_id):
+    """The ArtifactDetectors declared by a target's config, or None.
+
+    Returns None for an unknown target or one that declares no detectors, in
+    which case callers fall back to the module constants above.
+    """
+    from src.artifact.schema import ArtifactDetectors
+    from src.targets import load_target
+
+    target = load_target(target_id)
+    if target is None or not target.detectors:
+        return None
+    try:
+        return ArtifactDetectors(**target.detectors)
+    except Exception:
+        return None
+
+
+def detect_recoverable_pattern(page_text, patterns=None):
+    """The matching recoverable DetectorPattern, or None.
+
+    detect_recoverable() above returns only the condition name, which was
+    enough when there was one hardcoded way to recover. It is kept for
+    callers that only need the name; this returns the whole pattern so the
+    engine can read its declared RecoveryAction.
+    """
+    from src.artifact.schema import DetectorPattern
+
+    if patterns:
+        for p in patterns:
+            if p.marker in page_text:
+                return p
+        return None
+    for marker, condition in _DEFAULT_RECOVERABLE_MARKERS:
+        if marker in page_text:
+            # Synthesised so the engine has one shape to handle. No declared
+            # recovery means the legacy behaviour: click through, stay put.
+            return DetectorPattern(marker=marker, code=condition)
+    return None

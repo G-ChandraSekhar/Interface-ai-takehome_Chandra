@@ -17,6 +17,9 @@ allowed_origins:
   - "http://127.0.0.1:4478"   # Tenant A (loopback IP form)
   - "http://localhost:4479"   # Tenant B
   - "http://127.0.0.1:4479"   # Tenant B (loopback IP form)
+  # MERIDIAN CORE. The adaptation target; a hosted origin rather than a
+  # local one, which changes nothing about how it is enforced.
+  - "https://web-sample.interface-hiring.com"
 
 # Action types the agent is permitted to perform at all. Extending this list
 # is a deliberate policy change, not something a run can talk its way into.
@@ -40,6 +43,20 @@ safe_route_patterns:
   - "/operations"
   - "/operations/search"
   - "/operations/member/*"
+  # MERIDIAN: reading is safe. Every GET form page is safe too -- opening
+  # the transfer screen changes nothing; posting from it is what counts,
+  # and that is a separate route below.
+  - "/signon"
+  - "/menu"
+  - "/members"
+  - "/members/*"
+  - "/members/*/transfer"
+  - "/members/*/open-share"
+  - "/members/*/update"
+  - "/members/*/hold"
+  - "/members/*/transfer/review"
+  - "/members/*/open-share/review"
+  - "/members/*/hold/review"
 
 # Route patterns considered mutating (they change state -- e.g. opening an
 # account). These require either an approved artifact or explicit
@@ -47,6 +64,11 @@ safe_route_patterns:
 mutating_route_patterns:
   - "/desk/member/*/subaccount/*"
   - "/operations/member/*/subaccount/*"
+  # MERIDIAN: an information update mutates the record but is reversible
+  # by submitting the prior values again, so it does not warrant the
+  # irreversible tier. Note it posts to its own URL with no review step,
+  # unlike every other transaction on this target.
+  - "/members/*/update"
 
 # Route patterns considered irreversible/high-risk even among mutating
 # actions. These are never auto-executed -- they always require either a
@@ -54,6 +76,13 @@ mutating_route_patterns:
 irreversible_route_patterns:
   - "/desk/member/*/subaccount/confirm"
   - "/operations/member/*/subaccount/confirm"
+  # MERIDIAN: the three posting endpoints. Money moves, an account comes
+  # into existence, or a member loses access to their funds -- none of
+  # which is undone by submitting a form again. The target agrees: its
+  # own hold confirmation screen renders the words "IRREVERSIBLE ACTION".
+  - "/members/*/transfer/post"
+  - "/members/*/open-share/post"
+  - "/members/*/hold/post"
 
 # Hard ceilings, independent of what any single action allows.
 limits:

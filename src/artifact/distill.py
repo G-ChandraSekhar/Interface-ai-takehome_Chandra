@@ -19,6 +19,7 @@ human reviewer needs to be able to verify the binding by inspection.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -38,6 +39,7 @@ from src.replay.detectors import (
     _DEFAULT_BUSINESS_OUTCOME_MARKERS,
     _DEFAULT_HARD_FAILURE_MARKERS,
     _DEFAULT_RECOVERABLE_MARKERS,
+    detectors_from_target,
 )
 
 _TENANT_BY_ROUTE_PREFIX = {"/desk": "a", "/operations": "b"}
@@ -46,22 +48,28 @@ _ACTIONABLE_TOOLS = {"click", "type", "select"}
 
 
 def _default_detectors_for_tenant(tenant: str) -> ArtifactDetectors:
-    """Snapshot replay/detectors.py's built-in defaults into an explicit,
-    reviewable artifact field at distill time.
+    """Snapshot the target's declared detector taxonomy onto a new artifact.
 
     Discovery never observes error states -- distill_run() only ever runs
     against a log whose run_finished.status == "success" (enforced below),
     so there is nothing to *capture* the way locator candidates or
-    extraction labels are captured from what the run actually did. What we
-    CAN do is make the currently-implicit, code-level defaults explicit on
-    every new artifact, so a reviewer approving this artifact is also
-    reviewing what counts as e.g. "not found" for it, and so a different
-    vendor app's copy can be substituted here later without anyone editing
-    detectors.py. Both current tenants render identical error copy (they
-    share templates -- see tenants.py's own docstring: "the *same*
-    underlying vendor product"), so this returns the same set for either
-    tenant today; a real second vendor app would get its own entry here.
+    extraction labels are captured from what the run actually did.
+
+    What we can do is make the taxonomy explicit on every new artifact, so
+    a reviewer approving this capability is also approving what counts as
+    "not found", "session expired", or "the host is broken" for it. It is
+    read from config/targets/<tenant>.yaml, so a new console needs a YAML
+    file rather than an edit to src/replay/detectors.py -- and once written
+    into the artifact, that artifact keeps classifying the way its reviewer
+    saw it even if the target config later changes underneath it.
+
+    Falls back to detectors.py's module constants for a target with no
+    config, which is what keeps previously-distilled artifacts working.
     """
+    from_target = detectors_from_target(tenant)
+    if from_target is not None:
+        return from_target
+
     return ArtifactDetectors(
         business_outcomes=[
             DetectorPattern(marker=marker, code=code, message=message)
@@ -76,6 +84,7 @@ def _default_detectors_for_tenant(tenant: str) -> ArtifactDetectors:
             for marker, failure_class in _DEFAULT_HARD_FAILURE_MARKERS
         ],
     )
+
 
 # Fixed per-strategy priors, not measured probabilities -- they encode how
 # tightly each locator kind is coupled to things that change. An accessible
@@ -143,7 +152,19 @@ def _build_step(event: dict, params: dict[str, str], step_id: str) -> ArtifactSt
         if input_ref is None:
             literal_value = text
     elif tool_name == "select":
-        literal_value = (event.get("tool_args") or {}).get("option_text")
+        # Same binding rule as 'type', and for the same reason. This used to
+        # freeze every dropdown choice as a literal, which was harmless when
+        # the only recorded select was "always pick Holiday Savings" -- and
+        # wrong the moment a dropdown carries a real parameter. A funds
+        # transfer whose from-share and to-share are frozen is a capability
+        # that can only ever move money between the same two accounts.
+        chosen = (event.get("tool_args") or {}).get("option_text")
+        for pname, pval in params.items():
+            if chosen is not None and str(pval) == str(chosen):
+                input_ref = pname
+                break
+        if input_ref is None:
+            literal_value = chosen
 
     description = f"{tool_name} '{target_name}'" if target_name else tool_name
 
@@ -193,7 +214,11 @@ def distill_run(
     base_url = run_started["base_url"]
     route_prefix = run_started["route_prefix"]
     goal = run_started["goal"]
-    tenant = _TENANT_BY_ROUTE_PREFIX.get(route_prefix, "unknown")
+    # Newer runs record which target config drove them. Older runs predate
+    # targets entirely and are always the mock app, where the route prefix
+    # identifies the tenant unambiguously -- so that stays the fallback
+    # rather than a guess.
+    tenant = run_started.get("target") or _TENANT_BY_ROUTE_PREFIX.get(route_prefix, "unknown")
 
     steps = []
     step_events = [
@@ -238,11 +263,40 @@ def distill_run(
     no_label_for: list[str] = []
     for output_name in required_outputs:
         matching_events = [e for e in output_events if e["name"] == output_name]
-        label = matching_events[-1].get("extraction_label") if matching_events else None
-        if not label:
+        latest = matching_events[-1] if matching_events else {}
+
+        # Newer runs log the whole locator dict (extract.locate_value);
+        # older logs only carry a bare label, which always meant a
+        # label/value row. Both are honoured so previously-captured runs
+        # stay distillable.
+        located = latest.get("extraction_rule")
+        if not located:
+            label = latest.get("extraction_label")
+            located = {"strategy": "table_row_label", "label": label} if label else None
+
+        if not located or not located.get("label"):
             no_label_for.append(output_name)
             continue
-        output_extraction[output_name] = ExtractionRule(strategy="table_row_label", label=label)
+
+        if located["strategy"] == "table_grid_cell":
+            # Bind the row key the same way a 'type' step's text is bound:
+            # a key matching an invocation parameter becomes a reference
+            # that varies per call, anything else is frozen into the flow.
+            key_value = located.get("key_value")
+            key_input_ref = next(
+                (p for p, v in params.items() if str(v) == str(key_value)), None
+            )
+            output_extraction[output_name] = ExtractionRule(
+                strategy="table_grid_cell",
+                label=located["label"],
+                key_column=located.get("key_column"),
+                key_input_ref=key_input_ref,
+                key_literal=None if key_input_ref else key_value,
+            )
+        else:
+            output_extraction[output_name] = ExtractionRule(
+                strategy="table_row_label", label=located["label"]
+            )
 
     if no_label_for:
         raise DistillationError(
@@ -251,12 +305,76 @@ def distill_run(
             + " -- refusing to distill an artifact that can't re-extract its own outputs."
         )
 
+    # Every output must have been marked on the SAME page: that page becomes
+    # the checkpoint, and replay re-derives all of the outputs from it. An
+    # output marked on a page the flow later navigated away from produces an
+    # extraction rule that cannot resolve at replay time -- an artifact that
+    # validates, distills, and then fails on its first invocation.
+    #
+    # Caught by exactly that happening: a run marked both outputs on the
+    # search-results list rather than on the member record it went on to
+    # open. The prompt asked for early marking, which was harmless on a flow
+    # whose outputs only ever appeared on its final page and wrong the
+    # moment one didn't.
+    output_pages = {e.get("page_url", "") for e in output_events if e["name"] in required_outputs}
+    if len(output_pages) > 1:
+        raise DistillationError(
+            "Outputs were marked on different pages "
+            + str(sorted(output_pages))
+            + " -- every output must be readable from the single page the "
+            "capability ends on, or replay cannot re-extract them. Re-run "
+            "discovery with a goal that states where the values must be read."
+        )
+
     last_output_event = output_events[-1]
     checkpoint_url = last_output_event.get("page_url", "")
     checkpoint = Checkpoint(
         description="All required outputs (" + ", ".join(required_outputs) + ") are visible on this page.",
         url_pattern=_url_pattern_from(checkpoint_url, params),
     )
+
+    # Every declared input must actually be consumed, or the capability
+    # advertises a setting that does nothing.
+    #
+    # This is not a style rule. The catalogue publishes input_params as the
+    # arguments a caller may set; replay only ever varies a value some step
+    # references. An input nothing references is a promise the artifact
+    # cannot keep -- a caller asks to freeze share A for reason X, the run
+    # succeeds, returns a confirmation number, and freezes share B for
+    # reason Y instead. Every signal reports success and the evidence bundle
+    # agrees with it.
+    #
+    # This has happened here: a Place Account Hold recording where the model
+    # left both dropdowns on their pre-selected defaults, producing an
+    # artifact that could only ever freeze the first share for fraud while
+    # declaring otherwise. It was caught by reading the steps, which is not
+    # a control.
+    #
+    # Refusing rather than warning, deliberately. The failure this prevents
+    # is silent and lands on a customer; the failure it can cause is loud,
+    # lands on a developer, and is fixed by re-recording. Those costs are
+    # not comparable.
+    referenced = {step.input_ref for step in steps if step.input_ref}
+    referenced |= {
+        rule.key_input_ref
+        for rule in output_extraction.values()
+        if getattr(rule, "key_input_ref", None)
+    }
+    # A checkpoint pattern is rendered with the invocation's params, so a
+    # param used only there is genuinely consumed even though no step names it.
+    referenced |= set(re.findall(r"\{(\w+)\}", checkpoint.url_pattern))
+
+    unused = sorted(set(input_params) - referenced)
+    if unused:
+        raise DistillationError(
+            "Input param(s) "
+            + str(unused)
+            + " are declared but no step, extraction rule, or checkpoint uses "
+            "them -- the capability would advertise settings that do nothing, "
+            "and a caller changing them would get a successful run that "
+            "ignored their values. Re-record with a goal that sets every "
+            "field explicitly, even where a value already appears selected."
+        )
 
     run_dir_name = log_path.parent.name
     created_from_run_id = run_dir_name[len("discovery_"):] if run_dir_name.startswith("discovery_") else run_dir_name

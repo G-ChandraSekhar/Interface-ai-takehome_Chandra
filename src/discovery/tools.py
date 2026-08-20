@@ -159,6 +159,11 @@ class ToolResult:
     # letting the model retry a thing it structurally cannot do.
     needs_human: bool = False
     human_reason: str | None = None
+    # For 'select': the chosen option's underlying VALUE, resolved after
+    # the fact. The model picks by what it can see, which on this target
+    # is a label carrying a live balance; the artifact must record the
+    # stable identifier underneath it instead.
+    canonical_value: str | None = None
 
 
 def execute_tool(
@@ -238,8 +243,33 @@ def execute_tool(
             loc.fill(args["text"])
             return ToolResult(ok=True, message=f"Typed into {ref} ('{el.name}')")
         if name == "select":
-            loc.select_option(label=args["option_text"])
-            return ToolResult(ok=True, message=f"Selected '{args['option_text']}' in {ref}")
+            # Value first, label second -- mirrors _select_option() in the
+            # replay engine so capture and replay can never disagree about
+            # what a recorded option means.
+            chosen = args["option_text"]
+            try:
+                loc.select_option(value=chosen)
+            except Exception:
+                loc.select_option(label=chosen)
+            # Read back what is actually selected. The model chooses by the
+            # visible label -- on MERIDIAN "100234-S0070 - Share Draft
+            # (Checking) ($234.55)" -- and freezing that into an artifact
+            # binds the capability to a balance, so it replays correctly
+            # once and then silently stops matching. The option's value
+            # ("100234-S0070") is the stable identifier, and it is also what
+            # a caller would sensibly pass as a parameter.
+            canonical = chosen
+            try:
+                read_back = loc.input_value()
+                if read_back:
+                    canonical = read_back
+            except Exception:
+                pass
+            return ToolResult(
+                ok=True,
+                message=f"Selected '{chosen}' in {ref}",
+                canonical_value=canonical,
+            )
         if name == "read_text":
             text = loc.inner_text()
             return ToolResult(ok=True, message=f"{ref} text: {text!r}")

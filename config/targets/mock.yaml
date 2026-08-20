@@ -1,0 +1,68 @@
+# The original take-home target (mock_app/), both tenants.
+#
+# Described here rather than left as a hardcoded helper for one reason: if
+# the new target went through a config-driven sign-on and the old one kept
+# its bespoke Python function, there would be two authentication paths and
+# the claim that adapting is a configuration exercise would be false by
+# construction. One mechanism, two files.
+#
+# Tenant A and B share this file because they differ only in route prefix,
+# which the caller already supplies from the artifact's own target spec.
+
+id: mock
+display_name: CorePoint / Northwind (take-home mock app)
+base_url: null              # supplied per-artifact; both tenants use localhost
+route_prefix: null          # /desk (tenant a) or /operations (tenant b)
+
+signon:
+  path: "{route_prefix}/login"
+  fields:
+    username:
+      selector: "input[name='username']"
+      kind: fill
+      credential: username
+    password:
+      selector: "input[name='password']"
+      kind: fill
+      credential: password
+  submit: "button[type='submit']"
+  # The mock app reads a 'chaos' field at login and stores it in the session
+  # for the rest of that session (mock_app/chaos.py). This is how a replay
+  # run deterministically exercises a recoverable condition or a hard error
+  # as committed evidence. MERIDIAN has no equivalent because it injects
+  # per-request via ?inject=, which needs no login-time plumbing at all.
+  chaos_field: chaos
+
+credentials:
+  username:
+    env: MOCK_OPERATOR
+    default: teller1
+  password:
+    env: MOCK_PASSWORD
+    default: training-only
+
+session:
+  signed_on_marker: null
+  signed_off_marker: null
+
+# The defaults that used to be hardcoded in src/replay/detectors.py. They
+# stay the fallback for artifacts that declare no detectors of their own.
+detectors:
+  business_outcomes:
+    - marker: "No record found for"
+      code: MEMBER_NOT_FOUND
+      message: The requested member record does not exist.
+    - marker: "is restricted. Permission denied."
+      code: PERMISSION_DENIED
+      message: Access to this record is restricted.
+  recoverable:
+    - marker: "Your session has expired."
+      code: session_timeout
+      recovery:
+        kind: click_text
+        value: Continue
+        resume: false
+  hard_failures:
+    - marker: "System Error 500"
+      code: app_error
+      message: The application returned an error page.

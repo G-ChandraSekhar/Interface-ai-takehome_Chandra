@@ -18,8 +18,11 @@ Required outputs -- you must locate and mark ALL of these before finishing:
 
 Rules:
 1. Call exactly one tool per turn.
-2. Use `mark_output` as soon as you can see a required output's value on the
-   page -- do not wait until the end.
+2. Mark outputs only once you have reached the page where the task actually
+   ends, with EVERY required output visible on that one page at the same
+   time. Do not mark a value you happen to see on an intermediate page --
+   a search result list, a review screen -- even if it looks correct there.
+   Navigate to the final page first, then mark them all.
 3. Only call `finish` once every required output has been marked. Calling
    finish early, before all outputs are marked, will be treated as a failed
    run.

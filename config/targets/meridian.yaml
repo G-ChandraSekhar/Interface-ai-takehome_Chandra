@@ -1,0 +1,175 @@
+# MERIDIAN CORE (web-sample.interface-hiring.com)
+#
+# Everything this codebase needs to know about a target that isn't the
+# capability itself. The point of this file is that adapting to a new legacy
+# console should be config plus, at most, a small adapter -- so anything
+# target-specific that used to be a constant in Python lives here now.
+#
+# What is NOT here, deliberately: risk tiers and the origin allowlist. Those
+# are operator policy, they live in config/allowlist.yaml, and they are
+# enforced by the one PolicyEngine both discovery and replay call. A target
+# describing its own permissions would let a target file widen its own
+# reach, which is exactly the property the guardrails exist to prevent.
+
+id: meridian
+display_name: MERIDIAN CORE - Member Services Platform
+base_url: https://web-sample.interface-hiring.com
+route_prefix: ""          # routes are absolute (/menu, /members/...)
+
+# --- sign on ---------------------------------------------------------------
+# Session establishment is a precondition for every capability, handled
+# directly rather than by the LLM -- same reasoning as the original target:
+# a real deployment injects session material, and making a model type
+# credentials on every run adds risk without adding signal.
+#
+# It is ALSO recorded as a capability in its own right (the brief lists
+# "Sign on / session" as a function to cover), which is why the field
+# selectors are declared here rather than buried in a helper: one
+# description, used by both the precondition path and the artifact.
+signon:
+  path: /signon
+  fields:
+    operator:
+      selector: "input[name='operator']"
+      kind: fill
+      credential: operator
+    password:
+      selector: "input[name='password']"
+      kind: fill
+      credential: password
+    branch:
+      selector: "select[name='branch']"
+      kind: select
+      credential: branch
+  submit: "input[type='submit'], button[type='submit']"
+  # Reached on success. Anything else means sign-on did not take.
+  success_url_contains: /menu
+
+# Credentials come from the environment, never from this file. The defaults
+# are the public demo operators printed on the target's own sign-on page, so
+# a reviewer can run the demo with no setup; a real deployment sets the env
+# vars and the defaults are never used.
+credentials:
+  operator:
+    env: MERIDIAN_OPERATOR
+    default: teller1
+  password:
+    env: MERIDIAN_PASSWORD
+    default: password
+  branch:
+    env: MERIDIAN_BRANCH
+    default: MAIN-001
+
+# The supervisor profile. Referenced by name from an escalation, never
+# loaded into an artifact -- see the note in the detectors section below.
+supervisor_credentials:
+  operator:
+    env: MERIDIAN_SUPERVISOR
+    default: super1
+  password:
+    env: MERIDIAN_SUPERVISOR_PASSWORD
+    default: password
+  branch:
+    env: MERIDIAN_BRANCH
+    default: MAIN-001
+
+# --- fault injection -------------------------------------------------------
+# How to make this host misbehave on purpose, so the recoverable and
+# hard-failure branches of the result contract can be demonstrated against a
+# real target rather than only asserted in tests.
+#
+# MERIDIAN exposes this on its own System Settings screen: a forced mode that
+# fires on every request, and a random rate that fires on some. The two
+# demonstrate different things and both are worth having --
+#   forced  -> the fault never clears, so recovery retries within its budget
+#              and then fails cleanly. Proves the budget is real.
+#   rate    -> the fault is transient, so recovery clears it and the run
+#              completes. Proves recovery actually recovers.
+#
+# Replay always clears these again when it finishes. The host is shared and
+# in-memory; leaving a forced fault set would break the next person's run and
+# there would be nothing in their evidence to explain why.
+fault_injection:
+  mode: settings_form
+  path: /settings
+  forced_field: forcedInject
+  rate_field: errorRate
+  submit: "input[type='submit'], button[type='submit']"
+
+# --- session state ---------------------------------------------------------
+# The status bar renders the operator when signed on and the literal string
+# "NOT SIGNED ON" when not. Cheaper and more direct than inferring session
+# state from a redirect, and it is what a human reads off the same screen.
+session:
+  signed_on_marker: "OPR "
+  signed_off_marker: "NOT SIGNED ON"
+
+# --- detector taxonomy -----------------------------------------------------
+# Markers are primary and HTTP status is corroboration, not the other way
+# round. That ordering is forced by evidence: a natural "no member records
+# matched your search" returns HTTP 200, so status-first classification
+# would miss the single most common business outcome on the target. Status
+# is still recorded for evidence and may be asserted where it disambiguates.
+detectors:
+
+  # Legitimate answers the caller needs. Not crashes.
+  business_outcomes:
+    - marker: "No member records matched your search."
+      code: MEMBER_NOT_FOUND
+      message: No member record matched the search criteria.
+      http_status: 200
+    - marker: "RECORD NOT FOUND"
+      code: MEMBER_NOT_FOUND
+      message: The requested member record does not exist on this host.
+      http_status: 404
+    - marker: "SUPERVISOR OVERRIDE REQUIRED"
+      code: SUPERVISOR_REQUIRED
+      message: >-
+        This function requires a supervisor profile. The operator in session
+        is not authorized to complete it.
+      http_status: 403
+    - marker: "The transaction could not be validated:"
+      code: TRANSACTION_REJECTED
+      message: >-
+        The transaction was rejected by the host (for example insufficient
+        available balance, or a source share on hold).
+      http_status: 400
+    - marker: "TRANSACTION REJECTED"
+      code: TRANSACTION_REJECTED
+      message: The transaction could not be completed as entered.
+      http_status: 400
+    - marker: "Please correct the following:"
+      code: FIELD_VALIDATION_FAILED
+      message: One or more submitted field values were rejected as invalid.
+      http_status: 400
+
+  # Conditions replay can clear itself, within budget.
+  #
+  # Both of these land the browser somewhere OTHER than where it was --
+  # maintenance's "Continue" goes to /menu, and a timeout drops the session
+  # entirely -- so both re-navigate to the pre-recovery URL afterwards.
+  # Recovery that clears the interstitial but silently abandons the flow's
+  # position is worse than no recovery, because the run continues against
+  # the wrong page.
+  recoverable:
+    - marker: "SCHEDULED MAINTENANCE IN PROGRESS"
+      code: maintenance_window
+      http_status: 503
+      recovery:
+        kind: click_text
+        value: Continue
+        resume: true
+    - marker: "YOUR SESSION HAS TIMED OUT"
+      code: session_timeout
+      http_status: 440
+      recovery:
+        kind: reauthenticate
+        resume: true
+
+  # Genuinely wrong. Reported with the host's own reference code, which is
+  # what an operator would quote to a help desk.
+  hard_failures:
+    - marker: "APPLICATION ERROR"
+      code: app_error
+      message: The host reported an unexpected application error.
+      http_status: 500

@@ -1,0 +1,17 @@
+{
+  "status": "success",
+  "message": "Transfer completed successfully. Confirmation number CN480025 and amount $1.00 have been recorded from the transfer posted screen.",
+  "outputs": {
+    "confirmation": "CN480025",
+    "amount": "$1.00"
+  },
+  "step_count": 13,
+  "goal": "Using Member Inquiry, search for member number 100234, open their record, then go to Funds Transfer. Transfer 1.00 from share 100234-S0001-3 to share 100234-S0070 with the memo 'demo transfer'. Continue to the review screen and post the transfer. From the page shown after posting, report the confirmation number and the amount posted.",
+  "params": {
+    "member_id": "100234",
+    "from_share": "100234-S0001-3",
+    "to_share": "100234-S0070",
+    "amount": "1.00",
+    "memo": "demo transfer"
+  }
+}

@@ -1,0 +1,3 @@
+{"ts": "2026-08-20T18:16:12.126391+00:00", "event": "replay_started", "artifact_id": "update_member_information", "version": 1, "params": {"member_id": "100987", "phone": "555-0177"}}
+{"ts": "2026-08-20T18:16:12.700851+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-20T18:16:13.365490+00:00", "event": "replay_finished", "status": "success"}

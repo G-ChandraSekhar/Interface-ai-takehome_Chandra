@@ -1,0 +1,20 @@
+{
+  "status": "failure",
+  "outcome_code": null,
+  "outcome_message": null,
+  "outputs": {},
+  "failure": {
+    "class": "locator_not_found",
+    "step_id": "s2",
+    "expected": "type 'Value:'",
+    "observed": "tier 1 css_name_attr: no_match (matched 0)"
+  },
+  "step_telemetry": [
+    {
+      "step_id": "s1",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": true
+    }
+  ]
+}

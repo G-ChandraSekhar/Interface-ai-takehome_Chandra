@@ -35,8 +35,22 @@ class HandoffController:
         self._recorder = None
         self._server = None
         self._server_thread = None
+        self._port = None
 
     def start_console(self, port=4590):
+        """Start the operator console, or return the running one's URL.
+
+        Idempotent deliberately. A single run can escalate more than once --
+        a discovery that gets stuck, resumes, and then meets an irreversible
+        step calls this twice -- and the second call used to construct a
+        second uvicorn server on the same port, which fails to bind and logs
+        an error while the first server is still serving perfectly well.
+        The operator sees a console that works and a traceback that says it
+        does not.
+        """
+        if self._server_thread is not None and self._server_thread.is_alive():
+            return "http://127.0.0.1:" + str(self._port)
+
         import uvicorn
 
         from src.escalation.console import build_app
@@ -46,6 +60,7 @@ class HandoffController:
         self._server = uvicorn.Server(config)
         self._server_thread = threading.Thread(target=self._server.run, daemon=True)
         self._server_thread.start()
+        self._port = port
         time.sleep(0.3)
         return "http://127.0.0.1:" + str(port)
 
@@ -54,6 +69,9 @@ class HandoffController:
             self._server.should_exit = True
         if self._server_thread:
             self._server_thread.join(timeout=2)
+        self._server = None
+        self._server_thread = None
+        self._port = None
 
     def request_intervention(self, run_id, run_kind, goal_or_capability, step_id, reason, page_url, screenshot_path=None):
         self.current_intervention = Intervention(
@@ -65,6 +83,17 @@ class HandoffController:
             page_url=page_url,
             screenshot_path=screenshot_path,
         )
+        # Raise the window this run actually owns. An operator with several
+        # headed runs behind them has several Chromium windows sitting on
+        # plausible-looking pages, and acting in the wrong one is silent:
+        # the action really happens, against a session no run is watching,
+        # while the paused run sees nothing and reports its checkpoint
+        # unmet. Observed exactly once, which was enough.
+        if self.page is not None:
+            try:
+                self.page.bring_to_front()
+            except Exception:
+                pass
         self.lease.pause()
         self.evidence.log_event("intervention_created", **self.current_intervention.to_dict())
         return self.current_intervention

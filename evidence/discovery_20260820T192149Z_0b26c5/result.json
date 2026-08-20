@@ -1,0 +1,15 @@
+{
+  "status": "success",
+  "message": "A new Money Market share was successfully opened for member 101555 with an initial deposit of $25.00. The confirmation number is CN480064 and the share type opened is Money Market.",
+  "outputs": {
+    "confirmation": "CN480064",
+    "share_type": "Money Market"
+  },
+  "step_count": 11,
+  "goal": "Using Member Inquiry, search for member number 101555, open their record, then go to Open New Share. Open a new Money Market share with an initial deposit of 25.00. Continue to the review screen and post it. From the page shown after posting, report the confirmation number and the share type that was opened.",
+  "params": {
+    "member_id": "101555",
+    "share_type": "MMKT",
+    "deposit": "25.00"
+  }
+}

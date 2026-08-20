@@ -1,0 +1,14 @@
+{
+  "status": "success",
+  "message": "Updated the phone number for member 100234. The member's full name is Lovelace, Ada and the new phone number is 555-0142, as shown on the final Member Record page.",
+  "outputs": {
+    "member_name": "***REDACTED***",
+    "phone": "555-0142"
+  },
+  "step_count": 10,
+  "goal": "Using Member Inquiry, search for member number 100234, open their record, then go to Update Member Information. Set the phone number to 555-0142 and save the changes. From the page shown after saving, report the member's full name and their phone number.",
+  "params": {
+    "member_id": "100234",
+    "phone": "555-0142"
+  }
+}

@@ -31,7 +31,7 @@ from urllib.parse import urlparse
 
 from playwright.sync_api import sync_playwright
 
-from src.artifact.extract import extract_by_label
+from src.artifact.extract import apply_extraction
 from src.artifact.schema import Artifact
 from src.discovery.evidence import EvidenceWriter
 from src.escalation.controller import HandoffController
@@ -39,9 +39,15 @@ from src.guardrails.engine import PolicyEngine
 from src.guardrails.redact import redact_value
 from src.guardrails.result import PolicyDecision, RiskTier
 from src.replay.checkpoint import checkpoint_met
-from src.replay.detectors import detect_business_outcome, detect_hard_failure, detect_recoverable
+from src.replay.detectors import (
+    detect_business_outcome,
+    detect_hard_failure,
+    detect_recoverable_pattern,
+    detectors_from_target,
+)
 from src.replay.locator_resolver import ResolutionFailure, resolve_locator
 from src.replay.result import FailureClass, FailureDetail, ReplayResult, ReplayStatus, StepTelemetry
+from src.targets import authenticate, clear_fault_injection, load_target, set_fault_injection
 from src.telemetry.record import SOURCE_REPLAY, ReplayRecord, StepObservation, append_record
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -137,6 +143,57 @@ def _telemetry_record(artifact, result, duration_ms, source) -> ReplayRecord:
     )
 
 
+def _select_option(locator, value):
+    """Choose a dropdown option by underlying value, falling back to label.
+
+    Value first, deliberately. MERIDIAN renders a share picker whose option
+    VALUE is the stable share id ("100987-S0070") while its visible LABEL
+    embeds the current balance -- "100987-S0070 - Share Draft (Checking)
+    ($2.25)". Selecting by label would bind a capability to a balance, so it
+    would replay correctly exactly once and then silently fail to match the
+    moment any money moved. Label remains the fallback for targets whose
+    options carry no value attribute.
+    """
+    try:
+        return locator.select_option(value=value)
+    except Exception:
+        return locator.select_option(label=value)
+
+
+def _resync_after_handback(page):
+    """Bring the Playwright driver's view of the page back in line with the
+    browser the human was just operating.
+
+    Playwright's sync API processes browser events on the calling thread. A
+    paused run is blocked in ControlLease.wait_for_state(), so for the whole
+    duration of a handoff nothing is pumped: the real Chromium navigates
+    when the operator clicks, the host records the transaction, and the Page
+    object learns none of it. `page.url` stays frozen on the pre-handoff
+    screen and no framenavigated events arrive.
+
+    The consequence was a run that did everything correctly and then failed:
+    the operator posted a transfer, the money moved, and replay reported
+    checkpoint_not_met against a URL that was two screens out of date. Worse
+    than a wrong answer, because every other signal said the system was
+    working.
+
+    Discovery never showed this. It resyncs by accident -- the model's next
+    turn calls build_observation(), which makes enough Playwright calls to
+    drain the event stream on the way past.
+
+    Reading location.href goes to the live browser rather than trusting
+    cached state, and forces the pending events through with it.
+    """
+    try:
+        page.wait_for_load_state()
+    except Exception:
+        pass
+    try:
+        return page.evaluate("() => window.location.href")
+    except Exception:
+        return page.url
+
+
 def _page_text(page):
     return page.locator("body").inner_text()
 
@@ -168,23 +225,103 @@ def _artifact_policy_violation(artifact, action, url):
     return None
 
 
-def _mock_login(page, base_url, route_prefix, chaos="none"):
-    page.goto(base_url + route_prefix + "/login")
-    page.fill("input[name='username']", "teller1")
-    page.fill("input[name='password']", "training-only")
-    # The mock app reads a 'chaos' form field at login and stores it in the
-    # session for the rest of that session (mock_app/chaos.py) -- this is
-    # how a replay run can deterministically exercise a recoverable
-    # condition or a hard application error as committed evidence, exactly
-    # as the brief's deliverable #3 asks for.
-    if chaos != "none":
-        page.evaluate(
-            "(v) => { const f = document.querySelector('form'); "
-            "const i = document.createElement('input'); "
-            "i.type = 'hidden'; i.name = 'chaos'; i.value = v; f.appendChild(i); }",
-            chaos,
-        )
-    page.click("button[type='submit']")
+def _establish_session(page, artifact, chaos="none"):
+    """Sign on, driven entirely by the artifact's target configuration.
+
+    Was `_mock_login()`, duplicated verbatim here and in discovery/loop.py
+    with one target's credentials and selectors baked into both. Pointing at
+    MERIDIAN would have meant editing the replay engine; it is now a YAML
+    file. See src/targets.py.
+    """
+    return authenticate(
+        page,
+        artifact.target.tenant,
+        base_url=artifact.target.base_url,
+        route_prefix=artifact.target.route_prefix,
+        chaos=chaos,
+    )
+
+
+class _StatusTracker:
+    """Remembers the status of the last main-document response.
+
+    Recorded for evidence, not used to classify -- see DetectorPattern's
+    http_status docstring for why the page text has to decide. Attaching is
+    best-effort: a test double has no .on(), and losing a status must never
+    fail a replay.
+    """
+
+    def __init__(self):
+        self.status = None
+
+    def attach(self, page):
+        try:
+            page.on("response", self._observe)
+        except Exception:
+            pass
+        return self
+
+    def _observe(self, response):
+        try:
+            request = response.request
+            if request.resource_type == "document" and request.is_navigation_request():
+                self.status = response.status
+        except Exception:
+            pass
+
+
+def _error_reference(page_text):
+    """The host's own error reference, e.g. 'ERR-B041BFE4'.
+
+    What an operator would quote to a help desk, so it belongs in the
+    failure detail rather than only in a screenshot.
+    """
+    for line in page_text.splitlines():
+        if "Reference:" in line:
+            return line.split("Reference:", 1)[1].strip()
+    return None
+
+
+def _apply_recovery(page, pattern, artifact, evidence, chaos="none"):
+    """Clear a recoverable condition per its declared RecoveryAction.
+
+    Returns True if the flow's position was restored (or never lost).
+    A pattern with no declared recovery gets the legacy behaviour: click
+    through a 'Continue' and stay where the click landed.
+    """
+    recovery = getattr(pattern, "recovery", None)
+    url_before = page.url
+
+    if recovery is None:
+        try:
+            page.get_by_role("button", name="Continue").click()
+        except Exception:
+            page.get_by_text("Continue", exact=True).click()
+        return True
+
+    if recovery.kind == "reauthenticate":
+        # Only reachable because sign-on is configuration rather than a
+        # hardcoded helper -- the engine re-establishes a session on a
+        # target it knows nothing about.
+        _establish_session(page, artifact, chaos=chaos)
+        evidence.log_event("recovery_reauthenticated", target=artifact.target.tenant)
+    elif recovery.kind == "click_text":
+        label = recovery.value or "Continue"
+        try:
+            page.get_by_role("button", name=label).click()
+        except Exception:
+            page.get_by_text(label, exact=True).click()
+    else:
+        return False
+
+    if recovery.resume and page.url != url_before:
+        # The interstitial cleared but dropped us elsewhere (MERIDIAN's
+        # maintenance screen returns to /menu, a timeout to /signon).
+        # Continuing from there would run the rest of the flow against the
+        # wrong page while reporting a successful recovery.
+        page.goto(url_before)
+        evidence.log_event("recovery_resumed", url=url_before)
+    return True
 
 
 def _execute_replay(
@@ -198,6 +335,7 @@ def _execute_replay(
     mock_auth: bool = True,
     headless: bool = True,
     chaos: str = "none",
+    error_rate: float = 0.0,
     evidence_root=None,
     run_id=None,
     page=None,
@@ -218,6 +356,12 @@ def _execute_replay(
         artifact_id=artifact.artifact_id,
         version=artifact.version,
         params=params,
+        # Which console this ran against. Discovery has always recorded it;
+        # replay did not, so a reader could not tell a MERIDIAN replay from
+        # a mock one without opening the artifact -- and every replay looked
+        # target-less in the run history.
+        target=artifact.target.tenant,
+        base_url=artifact.target.base_url,
     )
 
     origin_check = policy.check_origin(artifact.target.base_url)
@@ -258,12 +402,20 @@ def _execute_replay(
     # Artifact-declared detector patterns, falling back to None (which
     # makes detect_*() below use their built-in defaults) when this
     # artifact predates the detectors field or simply declares none.
-    business_patterns = artifact.detectors.business_outcomes if artifact.detectors else None
-    recoverable_patterns = artifact.detectors.recoverable if artifact.detectors else None
-    hard_failure_patterns = artifact.detectors.hard_failures if artifact.detectors else None
+    # Artifact-declared patterns win: they are what a reviewer approved
+    # for THIS capability. Failing that, the target's own configured
+    # taxonomy applies, so a capability recorded against a console
+    # classifies by that console's copy without declaring anything.
+    # Only when neither exists do detect_*()'s built-in defaults apply.
+    _detectors = artifact.detectors or detectors_from_target(artifact.target.tenant)
+    business_patterns = _detectors.business_outcomes if _detectors else None
+    recoverable_patterns = _detectors.recoverable if _detectors else None
+    hard_failure_patterns = _detectors.hard_failures if _detectors else None
     # Defined before the try so the finally block can always reference it,
     # even if browser setup raises before it would otherwise be assigned.
     handoff_controller = None
+    status_tracker = _StatusTracker()
+    fault_armed = False
 
     try:
         if owns_browser:
@@ -271,9 +423,30 @@ def _execute_replay(
             p = playwright_cm.__enter__()
             browser = p.chromium.launch(headless=headless)
             page = browser.new_page()
+            status_tracker.attach(page)
             if mock_auth:
-                _mock_login(page, artifact.target.base_url, artifact.target.route_prefix, chaos=chaos)
-                evidence.log_event("mock_auth_completed", url=page.url, chaos=chaos)
+                _establish_session(page, artifact, chaos=chaos)
+                evidence.log_event("session_established", url=page.url, chaos=chaos)
+
+                # Arm the target's own fault injection, if it has any and the
+                # caller asked for one. Done AFTER sign-on because the
+                # controls live behind it, and because a fault armed before
+                # authentication would break the sign-on rather than the
+                # capability we mean to test.
+                if chaos != "none" or error_rate:
+                    armed = set_fault_injection(
+                        page,
+                        artifact.target.tenant,
+                        base_url=artifact.target.base_url,
+                        kind=chaos,
+                        rate=error_rate,
+                    )
+                    evidence.log_event(
+                        "fault_injection_armed" if armed else "fault_injection_unavailable",
+                        kind=chaos,
+                        error_rate=error_rate,
+                    )
+                    fault_armed = armed
 
         step_telemetry = []
         recovery_attempts = {}
@@ -446,12 +619,16 @@ def _execute_replay(
                     print("[HANDOFF] Open " + console_url + " and click 'Take control'.")
                     print("[HANDOFF] Perform the step in the live browser, then click 'Hand back'.\n")
                     human_actions = handoff_controller.wait_for_handback()
+                    # Nothing the operator did is visible to us until the
+                    # driver catches up -- see _resync_after_handback().
+                    resumed_url = _resync_after_handback(page)
                     print("[HANDOFF] Control returned. Verifying the resulting state.\n")
 
                     evidence.log_event(
                         "irreversible_step_performed_by_human",
                         step_id=step.step_id,
                         human_actions=human_actions,
+                        resumed_url=resumed_url,
                     )
 
                     # The human acted on the live page in place of the agent.
@@ -491,7 +668,7 @@ def _execute_replay(
             elif step.action == "type":
                 loc.fill(str(value))
             elif step.action == "select":
-                loc.select_option(label=str(value))
+                _select_option(loc, str(value))
 
             page_text = _page_text(page)
             recovery_applied = False
@@ -506,7 +683,19 @@ def _execute_replay(
                             step_class=hard,
                             step_id=step.step_id,
                             expected=step.description,
-                            observed="Application error page shown after action.",
+                            observed=(
+                                "Application error page shown after action."
+                                + (
+                                    " Host reference: " + _error_reference(page_text)
+                                    if _error_reference(page_text)
+                                    else ""
+                                )
+                                + (
+                                    " (HTTP " + str(status_tracker.status) + ")"
+                                    if status_tracker.status
+                                    else ""
+                                )
+                            ),
                         ),
                         step_telemetry=step_telemetry,
                         run_dir=str(run_dir),
@@ -532,8 +721,9 @@ def _execute_replay(
                     policy,
                 )
 
-            recoverable = detect_recoverable(page_text, recoverable_patterns)
-            if recoverable:
+            recoverable_pattern = detect_recoverable_pattern(page_text, recoverable_patterns)
+            if recoverable_pattern:
+                recoverable = recoverable_pattern.code
                 attempts = recovery_attempts.get(step.step_id, 0)
                 if attempts >= policy.max_recovery_attempts_per_step:
                     return _finish(
@@ -553,12 +743,19 @@ def _execute_replay(
                         policy,
                     )
                 recovery_attempts[step.step_id] = attempts + 1
-                try:
-                    page.get_by_role("button", name="Continue").click()
-                except Exception:
-                    page.get_by_text("Continue", exact=True).click()
+                _apply_recovery(page, recoverable_pattern, artifact, evidence, chaos=chaos)
                 recovery_applied = True
-                evidence.log_event("recovery_applied", step_id=step.step_id, condition=recoverable)
+                evidence.log_event(
+                    "recovery_applied",
+                    step_id=step.step_id,
+                    condition=recoverable,
+                    kind=(
+                        recoverable_pattern.recovery.kind
+                        if recoverable_pattern.recovery
+                        else "click_continue_legacy"
+                    ),
+                    http_status=status_tracker.status,
+                )
 
             # A tier above 1 means the top-ranked locator no longer worked
             # and a fallback rescued this step -- worth logging loudly, since
@@ -605,7 +802,7 @@ def _execute_replay(
         page_text = _page_text(page)
         outputs = {}
         for name, rule in artifact.output_extraction.items():
-            value = extract_by_label(page_text, rule.label)
+            value = apply_extraction(page_text, rule, params)
             if value is None:
                 return _finish(
                     evidence,
@@ -614,8 +811,11 @@ def _execute_replay(
                         failure=FailureDetail(
                             step_class=FailureClass.EXTRACTION_FAILED,
                             step_id=None,
-                            expected="label '" + rule.label + "' present on final page",
-                            observed="label not found in page text",
+                            expected=(
+                                rule.strategy + " rule for '" + rule.label
+                                + "' resolves on the final page"
+                            ),
+                            observed="rule did not resolve against the page text",
                         ),
                         step_telemetry=step_telemetry,
                         run_dir=str(run_dir),
@@ -637,6 +837,19 @@ def _execute_replay(
             policy,
         )
     finally:
+        # Disarm before letting go of the browser. This host is shared and
+        # holds its settings in memory, so a forced fault left set would
+        # silently break whoever runs next -- with nothing in THEIR evidence
+        # to explain it. Best-effort: a failure to clean up must not mask the
+        # result the run actually produced.
+        if fault_armed and page is not None:
+            try:
+                clear_fault_injection(
+                    page, artifact.target.tenant, base_url=artifact.target.base_url
+                )
+                evidence.log_event("fault_injection_cleared")
+            except Exception:
+                pass
         if handoff_controller is not None:
             handoff_controller.stop_console()
         if owns_browser:

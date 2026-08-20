@@ -1,0 +1,14 @@
+{
+  "status": "success",
+  "message": "Located member 100234. The full name is Lovelace, Ada and the mailing address is 19 Analytical Way, Springfield, as shown on the member record page.",
+  "outputs": {
+    "member_name": "***REDACTED***",
+    "address": "19 Analytical Way, Springfield"
+  },
+  "step_count": 6,
+  "goal": "Using Member Inquiry, search for member number 100234 and open that member's record. From the member record page, report the member's full name and the mailing address shown there.",
+  "params": {
+    "member_id": "100234",
+    "search_by": "number"
+  }
+}

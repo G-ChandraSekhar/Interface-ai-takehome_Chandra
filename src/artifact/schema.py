@@ -100,15 +100,57 @@ class Checkpoint(BaseModel):
 class ExtractionRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # table_row_label: the final page renders "Label\tValue" rows (this is
-    # exactly what Playwright's own inner_text() produces for the legacy
-    # table markup in this target app); replay finds the row whose label
-    # matches and returns that row's value. This is re-resolved against
-    # whatever page replay actually lands on -- so a different invocation
-    # parameter (a different member_id) naturally yields a different real
-    # value, rather than replaying back the value frozen at discovery time.
-    strategy: Literal["table_row_label"]
+    # table_row_label: the page renders "Label\tValue" pairs (what
+    # Playwright's inner_text() produces for legacy table markup); replay
+    # finds the pair whose label matches and returns its value. A dense
+    # layout may put several pairs on one line -- see extract.py.
+    #
+    # table_grid_cell: the value lives in a data grid with a header row
+    # (e.g. "Share ID | Type | Balance | Status"), where there is no
+    # label/value pair at all and the question is two-dimensional: "the
+    # Balance cell of the row whose Share ID is X". Needed the moment a
+    # capability reads one row out of a repeating table -- a member's
+    # per-share balance, a transaction line, a search result.
+    #
+    # Either way the rule is re-resolved against whatever page replay
+    # actually lands on, so a different invocation parameter yields a
+    # different real value rather than replaying back the value frozen at
+    # discovery time.
+    strategy: Literal["table_row_label", "table_grid_cell"]
+    # row label (table_row_label) or value-column header (table_grid_cell)
     label: str
+
+    # --- table_grid_cell only -------------------------------------------
+    # Which column identifies the row, e.g. "Share ID".
+    key_column: Optional[str] = None
+    # Which row to read. Exactly as ArtifactStep distinguishes input_ref
+    # from literal_value, and for the same reason: only a caller-supplied
+    # key is safe to vary per invocation, a frozen one is part of the flow.
+    key_input_ref: Optional[str] = None
+    key_literal: Optional[str] = None
+
+
+class RecoveryAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # How replay clears a recoverable condition itself.
+    #   click_text     -- click the control with this visible text (a
+    #                     "Continue" on a maintenance interstitial)
+    #   reauthenticate -- the session is gone; sign on again via the
+    #                     target's configured sign-on (src/targets.py)
+    kind: Literal["click_text", "reauthenticate"]
+    value: Optional[str] = None  # required for click_text
+
+    # Re-navigate to the URL the flow was on before recovering.
+    #
+    # Not a convenience. On MERIDIAN both recoveries land the browser
+    # somewhere else entirely -- the maintenance screen's "Continue" goes to
+    # /menu, and a timeout drops to /signon -- so a recovery that clears the
+    # interstitial and simply carries on would continue the flow against the
+    # wrong page while reporting that it recovered. That is worse than not
+    # recovering at all, because it fails silently instead of loudly. Left
+    # False for targets whose interstitial returns you where you were.
+    resume: bool = True
 
 
 class DetectorPattern(BaseModel):
@@ -127,6 +169,17 @@ class DetectorPattern(BaseModel):
     # replay constructs FailureClass(code) directly from it.
     code: str
     message: str = ""  # human-facing message; unused for recoverable/hard_failure
+
+    # The status the host returns with this page, recorded for evidence
+    # rather than used to classify. Classification stays marker-driven
+    # because status alone is not sufficient on a real target: MERIDIAN
+    # answers a natural "no member records matched your search" with HTTP
+    # 200, and returns 400 for both a legitimate insufficient-funds outcome
+    # and an injected fault. Status corroborates; the page text decides.
+    http_status: Optional[int] = None
+
+    # Recoverable patterns only: what to do about it.
+    recovery: Optional[RecoveryAction] = None
 
 
 class ArtifactDetectors(BaseModel):
