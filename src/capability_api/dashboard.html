@@ -295,6 +295,90 @@
     background: rgba(224,164,88,0.06); padding: 12px 14px;
   }
 
+  /* --- chat -------------------------------------------------------
+     A drawer rather than a third column: the chat is a way of DRIVING the
+     system, and the run list is the record of what it did. Docking it beside
+     the evidence keeps cause and effect on one screen -- ask for a balance,
+     watch the run appear. */
+  .chat-toggle {
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 4px 10px; cursor: pointer;
+    background: none; color: var(--muted);
+    border: 1px solid var(--line); border-radius: 4px;
+  }
+  .chat-toggle[aria-pressed="true"] { background: var(--surface-2); color: var(--paper); }
+  .chat-toggle:focus-visible { outline: 2px solid var(--recovered); outline-offset: 2px; }
+
+  .chat {
+    border-left: 1px solid var(--line);
+    display: flex; flex-direction: column;
+    height: calc(100vh - 62px);
+    background: var(--surface);
+  }
+  .chat-log { flex: 1; overflow-y: auto; padding: 18px 18px 8px; }
+  .msg { margin-bottom: 14px; font-size: 13.5px; line-height: 1.55; }
+  .msg .who {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.1em;
+    text-transform: uppercase; color: var(--dim); margin-bottom: 3px;
+  }
+  .msg.user .body { color: var(--paper); }
+  .msg.bot .body { color: var(--paper); white-space: pre-wrap; }
+
+  .inv {
+    margin-top: 8px; border-left: 2px solid var(--line);
+    padding: 6px 0 6px 10px;
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+  }
+  .inv b { color: var(--paper); font-weight: 500; }
+  .inv .st { text-transform: uppercase; letter-spacing: 0.05em; }
+
+  .chat-input { border-top: 1px solid var(--line); padding: 12px 14px; display: flex; gap: 8px; }
+  .chat-input input {
+    flex: 1; background: var(--ink); color: var(--paper);
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 8px 10px; font-family: var(--sans); font-size: 13px;
+  }
+  .chat-input input:focus { outline: none; border-color: var(--recovered); }
+  .chat-input button {
+    background: var(--surface-2); color: var(--paper);
+    border: 1px solid var(--line); border-radius: 4px;
+    padding: 8px 14px; cursor: pointer; font-family: var(--sans); font-size: 13px;
+  }
+  .chat-input button:disabled { opacity: 0.45; cursor: default; }
+
+  /* A real control, not a sentence asking the person to type 'yes'. The
+     confirmation has to be an action the interface takes, so that what runs
+     is what was shown rather than what a model understood. */
+  .confirm {
+    margin-top: 10px; padding: 12px 14px;
+    border: 1px solid var(--business); border-radius: 6px;
+    background: color-mix(in oklab, var(--business) 7%, transparent);
+  }
+  .confirm .what {
+    font-family: var(--mono); font-size: 11.5px; color: var(--paper);
+    margin-bottom: 4px;
+  }
+  .confirm .detail {
+    font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 10px;
+  }
+  .confirm .row { display: flex; gap: 8px; }
+  .confirm button {
+    font-family: var(--sans); font-size: 12.5px; padding: 6px 14px;
+    border-radius: 4px; cursor: pointer; border: 1px solid var(--line);
+  }
+  .confirm .go { background: var(--business); border-color: var(--business); color: #1a1400; font-weight: 500; }
+  .confirm .no { background: none; color: var(--muted); }
+  .confirm button:disabled { opacity: 0.45; cursor: default; }
+
+  .chat-hint {
+    padding: 0 18px 14px; font-size: 12.5px; color: var(--muted); line-height: 1.5;
+  }
+  .chat-hint code {
+    font-family: var(--mono); font-size: 11.5px; color: var(--paper);
+    display: block; margin-top: 6px; cursor: pointer;
+  }
+  .chat-hint code:hover { color: var(--recovered); }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -500,11 +584,135 @@ const SCOPES = {
   all:      { label: 'All',      caps: '',                                  runs: '' },
 };
 
+function Chat() {
+  const [log, setLog] = useState([]);
+  const [text, setText] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(null);
+
+  const confirmAction = async () => {
+    if (!pending || busy) return;
+    setBusy(true);
+    const token = pending.confirm_token;
+    setPending(null);
+    try {
+      const res = await fetch('/chat/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm_token: token }),
+      });
+      const data = await res.json();
+      setLog(h => [...h, { role: 'assistant', content: data.reply, invocations: data.invocations }]);
+    } catch (e) {
+      setLog(h => [...h, { role: 'assistant', content: 'The confirmation failed: ' + e.message }]);
+    }
+    setBusy(false);
+  };
+
+  const send = async (message) => {
+    const question = (message !== undefined ? message : text).trim();
+    if (!question || busy) return;
+    setText('');
+    const history = [...log, { role: 'user', content: question }];
+    setLog(history);
+    setBusy(true);
+    try {
+      const res = await fetch('/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: history.map(m => ({ role: m.role, content: m.content })),
+        }),
+      });
+      const data = await res.json();
+      setLog(h => [...h, { role: 'assistant', content: data.reply, invocations: data.invocations }]);
+      setPending(data.pending || null);
+    } catch (e) {
+      setLog(h => [...h, { role: 'assistant', content: 'The request failed: ' + e.message }]);
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="chat">
+      <div className="section-label"><span>Ask</span><span>drives the same API</span></div>
+
+      {log.length === 0 && (
+        <div className="chat-hint">
+          Requests become capability invocations. Every one appears in the run
+          list with its evidence.
+          <code onClick={() => send("What's the balance of share 100234-S0070?")}>
+            What's the balance of share 100234-S0070?
+          </code>
+          <code onClick={() => send('Look up member 100987')}>
+            Look up member 100987
+          </code>
+          <code onClick={() => send("Update member 100234's phone to 555-0199")}>
+            Update member 100234's phone to 555-0199
+          </code>
+          <code onClick={() => send('Transfer $50 from 100234-S0070 to 100234-S0001-3')}>
+            Transfer $50 from 100234-S0070 to 100234-S0001-3
+          </code>
+        </div>
+      )}
+
+      <div className="chat-log">
+        {log.map((m, i) => (
+          <div className={'msg ' + (m.role === 'user' ? 'user' : 'bot')} key={i}>
+            <div className="who">{m.role === 'user' ? 'you' : 'console'}</div>
+            <div className="body">{m.content}</div>
+            {(m.invocations || []).map((inv, j) => (
+              <div className="inv" key={j}>
+                <b>{inv.capability}</b>{' '}
+                <span className="st" style={{color: statusOf(inv.status).color}}>
+                  {inv.status}
+                </span>
+                {inv.outputs && Object.entries(inv.outputs).map(([k, v]) => (
+                  <div key={k}>{k}: <b>{String(v)}</b></div>
+                ))}
+                {inv.outcome_code && <div>{inv.outcome_code}</div>}
+                {inv.failure_class && <div>{inv.failure_class}</div>}
+                {inv.evidence && <div style={{color:'var(--dim)'}}>{inv.evidence}</div>}
+              </div>
+            ))}
+          </div>
+        ))}
+        {pending && !busy && (
+          <div className="confirm">
+            <div className="what">{pending.capability}</div>
+            <div className="detail">
+              {Object.entries(pending.params).map(([k, v]) => k + ': ' + v).join('  ·  ')}
+            </div>
+            <div className="row">
+              <button className="go" onClick={confirmAction}>Confirm and run</button>
+              <button className="no" onClick={() => setPending(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
+        {busy && <div className="msg bot"><div className="who">console</div>
+          <div className="body" style={{color:'var(--muted)'}}>Running…</div></div>}
+      </div>
+
+      <div className="chat-input">
+        <input
+          value={text}
+          placeholder="Ask for a balance, a member, a transfer…"
+          onChange={e => setText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') send(); }}
+          disabled={busy}
+        />
+        <button onClick={() => send()} disabled={busy || !text.trim()}>Send</button>
+      </div>
+    </div>
+  );
+}
+
 function App() {
   const [caps, setCaps] = useState([]);
   const [runs, setRuns] = useState([]);
   const [selected, setSelected] = useState(null);
   const [scope, setScope] = useState('meridian');
+  const [chatOpen, setChatOpen] = useState(false);
 
   useEffect(() => {
     const s = SCOPES[scope];
@@ -531,8 +739,16 @@ function App() {
         </div>
         <span className="spacer" />
         <Legend />
+        <button
+          className="chat-toggle"
+          aria-pressed={chatOpen}
+          onClick={() => setChatOpen(o => !o)}
+          style={{marginLeft: 14}}
+        >
+          Ask
+        </button>
       </header>
-      <main>
+      <main style={chatOpen ? {gridTemplateColumns: "minmax(280px, 340px) 1fr minmax(320px, 420px)"} : undefined}>
         <div className="pane-left">
           <div className="section-label"><span>Capabilities</span><span>{caps.length}</span></div>
           {caps.map(c => (
@@ -576,6 +792,7 @@ function App() {
           })}
         </div>
         <div className="pane-right"><Detail runId={selected} /></div>
+        {chatOpen && <Chat />}
       </main>
     </>
   );

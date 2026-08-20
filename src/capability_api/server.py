@@ -28,14 +28,21 @@ import os
 from pathlib import Path
 from typing import Optional
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from src.artifact.store import load_artifact_by_id
 from src.capability_api.registry import artifact_to_tool_schema, discover_artifacts
+from src.capability_api.chat import capability_tools, chat, confirm
 from src.capability_api.runs import list_runs, run_detail, screenshot_path
 from src.replay.engine import replay_artifact
+
+# The CLI loads this in main(); the server never needed it until the chat
+# endpoint did. Without it OPENAI_API_KEY sits in .env unread and the
+# chatbot reports itself unavailable on a machine that is configured fine.
+load_dotenv()
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 ARTIFACTS_DIR = Path(os.environ.get("CAPABILITY_ARTIFACTS_DIR", str(REPO_ROOT / "artifacts")))
@@ -163,6 +170,44 @@ def get_screenshot(run_id: str, name: str):
     if path is None:
         raise HTTPException(status_code=404, detail="No screenshot " + name)
     return FileResponse(str(path), media_type="image/png")
+
+
+class ChatRequest(BaseModel):
+    messages: list = []
+    target: Optional[str] = "meridian"
+
+
+@app.post("/chat")
+def post_chat(request: ChatRequest):
+    """A conversational front door over this same API.
+
+    Thin by design: it writes no tool definitions, reading the catalog
+    instead, and it invokes through the same replay path as everything else
+    with confirmations hardcoded off. A capability that moves money is
+    therefore refused here by the policy engine, which is the correct answer
+    rather than a missing feature -- see src/capability_api/chat.py.
+    """
+    return chat(request.messages, artifacts_dir=ARTIFACTS_DIR, target=request.target)
+
+
+class ConfirmRequest(BaseModel):
+    confirm_token: str
+
+
+@app.post("/chat/confirm")
+def post_chat_confirm(request: ConfirmRequest):
+    """Run a mutating action the person confirmed with a deliberate click.
+
+    The capability and parameters are read out of the signed token, not from
+    this request body, so what runs is exactly what they were shown.
+    """
+    return confirm(request.confirm_token, artifacts_dir=ARTIFACTS_DIR)
+
+
+@app.get("/chat/tools")
+def get_chat_tools(target: Optional[str] = "meridian"):
+    """What the chatbot can call -- the catalog, as the model receives it."""
+    return {"tools": capability_tools(ARTIFACTS_DIR, target=target)}
 
 
 @app.get("/", response_class=HTMLResponse)
