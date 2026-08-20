@@ -1,0 +1,4 @@
+{"ts": "2026-08-20T20:28:50.892700+00:00", "event": "replay_started", "artifact_id": "place_account_hold", "version": 2, "params": {"member_id": "103001", "share_id": "103001-S0070-6", "reason": "DECEASED", "notes": "replay demo"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-20T20:28:51.882527+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-20T20:28:52.227328+00:00", "event": "business_outcome", "code": "SUPERVISOR_REQUIRED", "step_id": "s5"}
+{"ts": "2026-08-20T20:28:52.324010+00:00", "event": "replay_finished", "status": "business_outcome"}

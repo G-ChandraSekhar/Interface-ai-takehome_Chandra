@@ -1,0 +1,4 @@
+{"ts": "2026-08-20T20:19:06.094496+00:00", "event": "replay_started", "artifact_id": "open_new_share", "version": 1, "params": {"member_id": "103001", "share_type": "CERT", "deposit": "75.00"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-20T20:19:07.287430+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-20T20:19:07.775265+00:00", "event": "locator_resolution_failed", "step_id": "s9", "attempts": [{"tier": 1, "strategy": "role_name", "value": "button:Open Share", "ok": false, "reason": "no_match", "matched": 0}, {"tier": 2, "strategy": "text", "value": "Open Share", "ok": false, "reason": "no_match", "matched": 0}]}
+{"ts": "2026-08-20T20:19:07.827686+00:00", "event": "replay_finished", "status": "failure"}

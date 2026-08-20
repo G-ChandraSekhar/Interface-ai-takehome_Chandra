@@ -385,6 +385,54 @@ Superseded artifact versions and mock-app runs are **filtered, not deleted** —
 a version that was replaced is still part of the audit trail and stays
 invocable through the API.
 
+### 4.14 Two over-fitted detector markers, found by replaying
+
+Both were written by pasting the sentence from the first screen that happened
+to contain the words. Both misclassified as a result, and neither was
+detectable without running the capability.
+
+**The noun changes by screen.** `"The transaction could not be validated:"`
+matches the funds-transfer rejection. The open-share screen says `"The
+**request** could not be validated:"`. So a correct refusal by the host — a
+certificate requested below its $500 minimum deposit — matched nothing, fell
+through to the locator ladder, and was reported as `locator_not_found`. Now
+matches the shared fragment, `"could not be validated:"`.
+
+**A banner is not a refusal.** `"SUPERVISOR OVERRIDE REQUIRED"` is printed as a
+heading on the 403 page — and *also* as a banner at the top of the Place
+Account Hold **form**, for every operator, supervisors included. Replay
+classified a healthy form as a permission denial and stopped at s5 before
+filling anything in.
+
+> `place_account_hold` could never have replayed. For anyone. It was recorded
+> successfully, distilled successfully, passed every test, and sat in the
+> catalogue as a working capability.
+
+**Discovery structurally could not catch this.** Discovery has no detector
+layer — it drives the page and asks the model what it sees. Detectors exist
+only on the replay path. So the recording succeeded while every replay of it
+failed, and nothing in the recording was wrong.
+
+It was found by replaying a capability that had until then only ever been
+recorded, which is exactly the gap §7 named. Now matches `"is not authorized
+to perform this"` — a sentence the host produces only when refusing, naming
+the operator it refuses.
+
+**The general lesson:** a marker is a claim about a target's copy, and the
+natural way to write one — paste the sentence off the screen in front of you —
+over-fits to that screen. Both fixes moved from *a sentence one screen says* to
+*the fragment every refusal shares*. A test now asserts that no marker fires on
+any of four healthy pages, because a taxonomy that over-matches is worse than
+one that under-matches: under-matching fails loudly at the locator ladder,
+over-matching reports a confident wrong answer.
+
+**`scripts/resync_detectors.py`** exists because of this. Artifacts snapshot
+their detectors at record time and replay prefers them, so a corrected marker
+does not reach artifacts already on disk. Re-recording six capabilities to fix
+a string would be absurd; hand-editing six JSON files is worse. The script is
+explicit and `--dry-run`-able, and touches nothing but the detectors block —
+replay must never silently change the classification a reviewer approved.
+
 ---
 
 ## 5. How the work unfolded
@@ -411,6 +459,7 @@ criterion.
 | 13 | `open_new_share` | `CN480058` |
 | 14 | `place_account_hold` | Extraction refused, then an unparameterised artifact caught; `@2` clean |
 | 15 | Unused-input refusal; fault injection | Recovery demonstrated live |
+| 16 | Replaying the two capabilities that had only been recorded | Two over-fitted detector markers found; `place_account_hold` had never been replayable |
 
 Reconnaissance before code was the highest-leverage decision. Three scripts, no
 guesses: every design choice after step 3 was made against observed behaviour
@@ -420,7 +469,7 @@ rather than the brief's description of it.
 
 ## 6. Verification
 
-**172 tests passing**, up from 126 — including the 13 browser tests that
+**178 tests passing**, up from 126 — including the 13 browser tests that
 exercise the real mock app through every changed path.
 
 Live against MERIDIAN CORE:
@@ -432,8 +481,10 @@ Live against MERIDIAN CORE:
 | `check_member_balance` | replayed on a **different member and share** → `$3.25` |
 | `update_member_information` | replayed on 100987, different phone |
 | `funds_transfer@2` | replayed **reversed direction**, different amount → `CN480034` |
-| `open_new_share` | recorded → `CN480058` |
-| `place_account_hold@2` | recorded as supervisor → `CN480063` |
+| `open_new_share` | replayed on a **different member, share type and deposit** → `CN480103` |
+| `place_account_hold@2` | replayed as supervisor on a **different member, share and reason** → `CN480108` |
+| Supervisor refusal | same artifact as a teller → `SUPERVISOR_REQUIRED`, from the real 403 after filling the form |
+| Host rule rejection | certificate below its minimum deposit → `TRANSACTION_REJECTED`, carrying the host's own reason |
 | Escalation, discovery | `CN480026` |
 | Escalation, replay | `CN480034` — no LLM in the decision loop |
 | Verify-don't-trust | 3 × `checkpoint_not_met` + a balance check proving the money moved |
@@ -475,16 +526,13 @@ Per §5 of the brief, stated rather than discovered:
   contract, referenced by no step, so search-by-last-name is unreachable
   despite §2.1 asking for it. Same root cause as §4.10. Note this artifact
   could no longer be *produced* under §4.11's check; it predates it.
-- `open_new_share` and `place_account_hold@2` are recorded and distilled but
-  **never replayed**. They are demonstrated as discoveries, not as deterministic
-  capabilities.
 - `s2`'s ladder is single-candidate (`css_name_attr` only) — no fallback if
   that attribute changes. `label_proximity` did not fire on the search form's
   `Value:` cell; worth understanding rather than leaving unremarked.
 - `funds_transfer@1` and `place_account_hold@1` are the flawed artifacts, kept
   on disk deliberately as evidence of caught defects.
 
-**What should make you uneasy:** seven of eight defects were found by *reading
+**What should make you uneasy:** nine of ten defects were found by *reading
 output*, not by tests failing. The process worked, but coverage did not catch
 them in advance — and the two most dangerous (the `target_url` tier bug and the
 driver resync) would both have shipped looking green. §4.11 is the first
@@ -514,9 +562,8 @@ the artifact's contract, not just the code's logic.
 
 In priority order:
 
-1. Re-record `member_inquiry` with the search-by dropdown set explicitly, and
-   replay `open_new_share` and `place_account_hold@2` — closing the gap between
-   *recorded six* and *demonstrated six*.
+1. Re-record `member_inquiry` with the search-by dropdown set explicitly — the
+   last remaining dead parameter.
 2. A per-run recovery ceiling, so an unclearable fault reports
    `session_recovery_exhausted` rather than `locator_not_found`.
 3. More structural checks on the artifact contract, in the spirit of §4.11 —

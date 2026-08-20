@@ -1,0 +1,7 @@
+{"ts": "2026-08-20T20:28:12.883631+00:00", "event": "replay_started", "artifact_id": "open_new_share", "version": 1, "params": {"member_id": "103001", "share_type": "S0070", "deposit": "75.00"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-20T20:28:14.101521+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-20T20:28:15.306754+00:00", "event": "intervention_created", "run_id": "replay_20260820T202812Z_ede40a", "run_kind": "replay", "goal_or_capability": "open_new_share@1", "step_id": "s9", "reason": "Irreversible step 'click 'Open Share'' cannot run unattended. A human must take control of the live session to perform or refuse this action.", "page_url": "https://web-sample.interface-hiring.com/members/103001/open-share/review", "screenshot_path": "screenshots/001_irreversible_awaiting_operator.png", "created_at": "2026-08-20T20:28:15.302609+00:00"}
+{"ts": "2026-08-20T20:28:22.064565+00:00", "event": "operator_took_control"}
+{"ts": "2026-08-20T20:28:25.976537+00:00", "event": "operator_handed_back", "human_actions": []}
+{"ts": "2026-08-20T20:28:25.996586+00:00", "event": "irreversible_step_performed_by_human", "step_id": "s9", "human_actions": [], "resumed_url": "https://web-sample.interface-hiring.com/members/103001/open-share/post"}
+{"ts": "2026-08-20T20:28:26.006806+00:00", "event": "replay_finished", "status": "success"}

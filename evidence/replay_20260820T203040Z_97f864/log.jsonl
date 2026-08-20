@@ -1,0 +1,7 @@
+{"ts": "2026-08-20T20:30:40.832443+00:00", "event": "replay_started", "artifact_id": "place_account_hold", "version": 2, "params": {"member_id": "103001", "share_id": "103001-S0070-6", "reason": "DECEASED", "notes": "replay demo"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-20T20:30:41.663038+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-20T20:30:42.690007+00:00", "event": "intervention_created", "run_id": "replay_20260820T203040Z_97f864", "run_kind": "replay", "goal_or_capability": "place_account_hold@2", "step_id": "s10", "reason": "Irreversible step 'click 'Apply Hold'' cannot run unattended. A human must take control of the live session to perform or refuse this action.", "page_url": "https://web-sample.interface-hiring.com/members/103001/hold/review", "screenshot_path": "screenshots/001_irreversible_awaiting_operator.png", "created_at": "2026-08-20T20:30:42.686354+00:00"}
+{"ts": "2026-08-20T20:30:53.309845+00:00", "event": "operator_took_control"}
+{"ts": "2026-08-20T20:30:58.709243+00:00", "event": "operator_handed_back", "human_actions": []}
+{"ts": "2026-08-20T20:30:58.721423+00:00", "event": "irreversible_step_performed_by_human", "step_id": "s10", "human_actions": [], "resumed_url": "https://web-sample.interface-hiring.com/members/103001/hold/post"}
+{"ts": "2026-08-20T20:30:58.728565+00:00", "event": "replay_finished", "status": "success"}

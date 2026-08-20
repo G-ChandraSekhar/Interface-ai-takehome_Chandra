@@ -253,16 +253,16 @@
         "recovery": null
       },
       {
-        "marker": "SUPERVISOR OVERRIDE REQUIRED",
+        "marker": "is not authorized to perform this",
         "code": "SUPERVISOR_REQUIRED",
         "message": "This function requires a supervisor profile. The operator in session is not authorized to complete it.",
         "http_status": 403,
         "recovery": null
       },
       {
-        "marker": "The transaction could not be validated:",
+        "marker": "could not be validated:",
         "code": "TRANSACTION_REJECTED",
-        "message": "The transaction was rejected by the host (for example insufficient available balance, or a source share on hold).",
+        "message": "The host rejected the request (for example insufficient available balance, a source share on hold, or a deposit below the minimum for the selected share type).",
         "http_status": 400,
         "recovery": null
       },

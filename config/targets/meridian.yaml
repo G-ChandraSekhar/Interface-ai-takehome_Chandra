@@ -122,17 +122,40 @@ detectors:
       code: MEMBER_NOT_FOUND
       message: The requested member record does not exist on this host.
       http_status: 404
-    - marker: "SUPERVISOR OVERRIDE REQUIRED"
+    # The sentence, not the heading. "SUPERVISOR OVERRIDE REQUIRED" is also
+    # printed as a banner at the top of the Place Account Hold FORM -- for
+    # every operator, supervisors included -- so matching the heading meant
+    # replay classified a healthy form as a refusal and short-circuited
+    # before filling it in. place_account_hold could never have replayed at
+    # all, and discovery could not have caught it: discovery has no detector
+    # layer, so the recording succeeded while every replay of it failed.
+    #
+    # This sentence appears only on the actual 403, where the host names the
+    # operator it is refusing.
+    - marker: "is not authorized to perform this"
       code: SUPERVISOR_REQUIRED
       message: >-
         This function requires a supervisor profile. The operator in session
         is not authorized to complete it.
       http_status: 403
-    - marker: "The transaction could not be validated:"
+    # Deliberately the shared fragment rather than a whole sentence. The
+    # host varies the noun by screen -- "The TRANSACTION could not be
+    # validated" on a funds transfer, "The REQUEST could not be validated"
+    # when opening a share -- and matching the transfer's exact wording
+    # meant a real rejection on the open-share screen matched nothing,
+    # fell through to the locator ladder, and was reported as
+    # locator_not_found instead of the business outcome it was.
+    #
+    # Found by a replay that asked for a certificate with a $75 deposit
+    # against a $500 minimum: a correct refusal by the host, misreported by
+    # us. A marker is a claim about the target's copy, and this one was
+    # over-fitted to the first screen we happened to read.
+    - marker: "could not be validated:"
       code: TRANSACTION_REJECTED
       message: >-
-        The transaction was rejected by the host (for example insufficient
-        available balance, or a source share on hold).
+        The host rejected the request (for example insufficient available
+        balance, a source share on hold, or a deposit below the minimum for
+        the selected share type).
       http_status: 400
     - marker: "TRANSACTION REJECTED"
       code: TRANSACTION_REJECTED

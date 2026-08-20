@@ -1,0 +1,4 @@
+{"ts": "2026-08-20T20:31:27.372308+00:00", "event": "replay_started", "artifact_id": "place_account_hold", "version": 2, "params": {"member_id": "101555", "share_id": "101555-S0001", "reason": "FRAUD", "notes": "teller attempt"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-20T20:31:28.069791+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-20T20:31:28.604748+00:00", "event": "business_outcome", "code": "SUPERVISOR_REQUIRED", "step_id": "s9"}
+{"ts": "2026-08-20T20:31:28.661514+00:00", "event": "replay_finished", "status": "business_outcome"}

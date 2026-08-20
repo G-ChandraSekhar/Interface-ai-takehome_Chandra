@@ -309,3 +309,132 @@ def test_every_meridian_posting_endpoint_is_irreversible():
         "/members/100234/hold/post",
     ):
         assert policy._risk_tier_for_path(path) == RiskTier.IRREVERSIBLE, path
+
+
+# ---------------------------------------------------------------------------
+# A marker is a claim about the target's copy, and it can be wrong
+# ---------------------------------------------------------------------------
+
+
+REJECTION_SCREENS = {
+    # Funds transfer, the screen the original marker was written from.
+    "transfer": (
+        "FUNDS TRANSFER\n"
+        "The transaction could not be validated:\n"
+        "Insufficient available balance in the source share.\n"
+        "Return to Funds Transfer"
+    ),
+    # Open new share -- same failure mode, different noun. The original
+    # marker said "transaction" and matched nothing here, so a correct
+    # refusal by the host fell through to the locator ladder and was
+    # reported as locator_not_found.
+    "open_share": (
+        "OPEN NEW SHARE\n"
+        "The request could not be validated:\n"
+        "Certificates require a minimum opening deposit of $500.00.\n"
+        "Return to Open New Share"
+    ),
+}
+
+
+def test_every_rejection_screen_classifies_as_a_business_outcome():
+    from src.replay.detectors import detect_business_outcome
+
+    patterns = detectors_from_target("meridian").business_outcomes
+    for screen, text in REJECTION_SCREENS.items():
+        result = detect_business_outcome(text, patterns)
+        assert result is not None, screen + " screen was not classified"
+        assert result[0] == "TRANSACTION_REJECTED", screen
+
+
+def test_the_marker_is_not_over_fitted_to_one_screens_wording():
+    """Regression: the fix is that the marker no longer names the noun.
+
+    Pinning this because the natural way to write the pattern is to paste in
+    the whole sentence from whichever screen you happened to be looking at,
+    which is exactly how it broke.
+    """
+    patterns = detectors_from_target("meridian").business_outcomes
+    validated = [p for p in patterns if "could not be validated" in p.marker]
+    assert validated, "no validation marker declared"
+    for p in validated:
+        assert "transaction" not in p.marker.lower()
+        assert "request" not in p.marker.lower()
+
+
+def test_a_healthy_page_is_still_not_a_rejection():
+    """A widened marker that matches everything would be worse than a narrow one."""
+    from src.replay.detectors import detect_business_outcome
+
+    patterns = detectors_from_target("meridian").business_outcomes
+    healthy = "OPEN NEW SHARE\nMember 103001\nShare Type:\nInitial Deposit:\nContinue"
+    assert detect_business_outcome(healthy, patterns) is None
+
+
+# ---------------------------------------------------------------------------
+# A warning banner is not a refusal
+# ---------------------------------------------------------------------------
+
+
+HOLD_FORM_AS_SUPERVISOR = (
+    "PLACE ACCOUNT HOLD\n"
+    "RESTRICTED FUNCTION - SUPERVISOR OVERRIDE REQUIRED\n"
+    "Share:\n"
+    "103001-S0070-6 - Share Draft (Checking)\n"
+    "Reason Code:\n"
+    "FRAUD - Suspected fraud\n"
+    "Notes:\n"
+    "OPR SUPER1 \xa0|\xa0 BR MAIN-001"
+)
+
+SUPERVISOR_REFUSAL = (
+    "SUPERVISOR OVERRIDE REQUIRED\n"
+    "Operator profile teller1 is not authorized to perform this function. "
+    "A supervisor must sign on to complete this request.\n"
+    "Return to previous screen"
+)
+
+
+def test_the_hold_form_is_not_a_refusal():
+    """The form carries the phrase as a banner, for every operator.
+
+    Matching the heading meant replay classified a healthy form as a
+    permission denial and stopped before filling it in -- so
+    place_account_hold could never replay at all, for anyone. Discovery could
+    not have caught it: discovery has no detector layer, so the recording
+    succeeded while every replay of it failed.
+    """
+    from src.replay.detectors import detect_business_outcome
+
+    patterns = detectors_from_target("meridian").business_outcomes
+    assert detect_business_outcome(HOLD_FORM_AS_SUPERVISOR, patterns) is None
+
+
+def test_the_actual_refusal_still_classifies():
+    from src.replay.detectors import detect_business_outcome
+
+    patterns = detectors_from_target("meridian").business_outcomes
+    result = detect_business_outcome(SUPERVISOR_REFUSAL, patterns)
+    assert result is not None and result[0] == "SUPERVISOR_REQUIRED"
+
+
+def test_no_marker_matches_a_page_that_merely_warns():
+    """Guards the whole taxonomy, not just this one pattern.
+
+    Every marker should key off something the host says when it has REFUSED,
+    not something it says while inviting you to proceed. Both bugs found on
+    this target were markers pasted from the first screen that happened to
+    contain the words.
+    """
+    from src.replay.detectors import detect_business_outcome, detect_hard_failure
+
+    detectors = detectors_from_target("meridian")
+    healthy_pages = [
+        HOLD_FORM_AS_SUPERVISOR,
+        "FUNDS TRANSFER\nMember 100234 - Lovelace, Ada\nFrom Share:\nAmount:\nMemo:\nContinue",
+        "CONFIRM FUNDS TRANSFER\nIRREVERSIBLE ACTION\nAmount:\t$1.00\nPost Transfer",
+        "MEMBER RECORD\nName:\tLovelace, Ada\nSHARES / BALANCES",
+    ]
+    for page in healthy_pages:
+        assert detect_business_outcome(page, detectors.business_outcomes) is None, page[:40]
+        assert detect_hard_failure(page, detectors.hard_failures) is None, page[:40]
