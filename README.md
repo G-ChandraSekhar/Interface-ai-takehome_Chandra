@@ -1,15 +1,239 @@
-# Computer-Use Automation System (interface.ai take-home)
+# Computer-Use Automation System
 
-An LLM discovers a workflow against a live legacy-style banking UI, distills the
-run into a typed capability artifact, and replays that artifact deterministically
-with no model in the decision loop. See `REPORT.md` for the design write-up.
+An LLM discovers a workflow against a live legacy banking UI, distills the run
+into a typed capability artifact, and replays that artifact deterministically
+with no model in the decision loop.
 
-## Reviewer quickstart
+The system now runs against **two** targets: MERIDIAN CORE
+([web-sample.interface-hiring.com](https://web-sample.interface-hiring.com/)),
+the adaptation target, and the original self-built mock app it was first
+developed on. Pointing it at a new console is a YAML file in `config/targets/`
+plus, at most, a small adapter — see `docs/ADAPTATION.md` for the audit of what
+that actually took, and `REPORT.md` for the original design write-up.
+
+---
+
+# Demo path — MERIDIAN CORE
+
+**Everything below runs without an API key.** Discovery needs one; replay,
+the API, and the dashboard do not.
+
+## Setup
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && python3 -m playwright install chromium
-python3 -m pytest tests/ -q                      # 100 passing
+python3 -m pytest tests/ -q                      # 172 passing
+```
+
+Credentials default to the demo operators MERIDIAN prints on its own sign-on
+page, so nothing else is needed to run the demo. To override:
+
+```bash
+export MERIDIAN_OPERATOR=teller1 MERIDIAN_PASSWORD=password
+export MERIDIAN_SUPERVISOR=super1 MERIDIAN_SUPERVISOR_PASSWORD=password
+```
+
+## 1. Start the API and dashboard
+
+```bash
+python3 -m uvicorn src.capability_api.server:app --port 4600
+```
+
+Open **<http://127.0.0.1:4600>**. One process serves both: the capability
+catalog, run history read straight off the evidence bundles, each run's inputs
+and structured outputs, its locator-resolution tiers, its screenshots, and its
+event log. The **MERIDIAN / All** toggle switches between the current target's
+working set and the full archive.
+
+Leave it running — it re-reads evidence every few seconds, so runs from the
+next steps appear live.
+
+## 2. Replay a capability — deterministic, no LLM
+
+```bash
+python3 -m src.cli replay --artifact-id member_inquiry --version 1   --param member_id=100987 --param search_by=number --headless
+```
+
+→ `Turing, Alan` / `2 Bletchley Park, Milton Keynes`
+
+The artifact was discovered against member **100234**. Replaying it against
+**100987** returns that member's real values, because outputs are re-derived
+from whatever page replay lands on rather than replayed back from discovery.
+
+Reading one share's balance out of the member's share table:
+
+```bash
+python3 -m src.cli replay --artifact-id check_member_balance --version 1   --param member_id=100234 --param share_id=100234-S0070 --headless
+```
+
+## 3. Invoke it as an agent would
+
+```bash
+curl -s localhost:4600/capabilities | python3 -m json.tool | head -40
+
+curl -s -X POST 'localhost:4600/capabilities/member_inquiry/invoke?version=1' \
+  -H 'Content-Type: application/json' \
+  -d '{"params": {"member_id": "101555", "search_by": "number"}}' \
+  | python3 -m json.tool
+```
+
+Same replay engine as the CLI, same guardrails, same evidence trail — a second
+front door, not a second execution path.
+
+## 4. Exceptional states
+
+**A business outcome — a legitimate answer, not a crash:**
+
+```bash
+python3 -m src.cli replay --artifact-id member_inquiry --version 1 \
+  --param member_id=999999 --param search_by=number --headless
+```
+
+→ `business_outcome` / `MEMBER_NOT_FOUND`. Note MERIDIAN answers this with
+**HTTP 200**, which is why classification is marker-driven rather than
+status-driven.
+
+**A recoverable condition, forced through MERIDIAN's own fault injection:**
+
+```bash
+python3 -m src.cli replay --artifact-id check_member_balance --version 1 \
+  --param member_id=100234 --param share_id=100234-S0070 \
+  --chaos maintenance --headless
+```
+
+The maintenance interstitial is detected, `Continue` is clicked, and the flow
+re-navigates back to where it was — `recovery_applied: True` in the step
+telemetry. A forced fault fires on *every* request and never clears, so the run
+then fails within budget rather than looping. The injection is armed on the
+host's own settings screen after sign-on and cleared again in `finally`.
+
+**A hard failure:**
+
+```bash
+python3 -m src.cli replay --artifact-id check_member_balance --version 1 \
+  --param member_id=100234 --param share_id=100234-S0070 \
+  --chaos server --headless
+```
+
+→ `failure` / `app_error`, carrying the host's own `ERR-…` reference.
+
+## 5. Escalation — an irreversible action, with a human
+
+Money movement can never run unattended. Check which shares are open first, as
+this host is shared and its state moves:
+
+```bash
+python3 -c "
+from playwright.sync_api import sync_playwright
+from src.targets import authenticate
+with sync_playwright() as p:
+    b = p.chromium.launch(headless=True); pg = b.new_page()
+    authenticate(pg, 'meridian')
+    pg.goto('https://web-sample.interface-hiring.com/members/100234')
+    for ln in pg.locator('body').inner_text().splitlines():
+        if ln.count(chr(9)) == 3 and '-S' in ln: print(ln.replace(chr(9), ' | '))
+    b.close()
+"
+```
+
+Then, picking two shares that show `OPEN`:
+
+```bash
+python3 -m src.cli replay --artifact-id funds_transfer --version 2 \
+  --param member_id=100234 --param from_share=100234-S0001-3 \
+  --param to_share=100234-S0070 --param amount=1.00 --param memo="demo" \
+  --handoff
+```
+
+Replay walks the flow, reaches **Post Transfer**, and stops — the policy engine
+classifies that endpoint irreversible and no flag overrides it. It prints an
+operator console URL (`http://127.0.0.1:4590`):
+
+1. Open the console, click **Take control**
+2. Click **Post Transfer** in the browser window it raises for you
+3. Wait for the page to change, then click **Hand back**
+
+Replay resumes, **verifies the resulting state rather than trusting you**, and
+extracts the confirmation number. If the action was not performed, it reports
+`checkpoint_not_met` rather than claiming success — see
+`evidence/replay_20260820T182817Z_457fa0/` for exactly that.
+
+Without `--handoff` the same replay fails closed.
+
+**The refusal path**, no human involved — a teller attempting a supervisor-only
+function gets a clean business outcome:
+
+```bash
+python3 -m src.cli replay --artifact-id place_account_hold --version 2 \
+  --param member_id=102777 --param share_id=102777-S0001 \
+  --param reason=LEGAL --param notes="demo" --headless
+```
+
+## 6. Record a new capability (needs `OPENAI_API_KEY`)
+
+```bash
+cp .env.example .env        # add OPENAI_API_KEY
+
+python3 -m src.cli discover --tenant meridian \
+  --goal "Using Member Inquiry, search for member number 100234 and open that member's record. From the member record page, report the member's full name and the mailing address shown there." \
+  --param member_id=100234 --param search_by=number \
+  --output member_name --output address
+
+python3 -m src.cli distill --run-dir evidence/discovery_<run_id> \
+  --artifact-id my_capability --name "My capability" \
+  --param member_id=100234 --param search_by=number \
+  --output member_name --output address
+```
+
+Two constraints the distiller enforces, both learned the hard way and both
+documented in `docs/ADAPTATION.md`: every output must be readable from the
+single page the capability ends on, and every declared input must be used by
+some step — an artifact advertising a parameter nothing consumes would accept a
+caller's value and silently ignore it.
+
+## Capabilities
+
+| Capability | Inputs | Outputs |
+|---|---|---|
+| `member_inquiry@1` | member_id, search_by | member_name, address |
+| `check_member_balance@1` | member_id, share_id | member_name, share_balance |
+| `update_member_information@1` | member_id, phone | member_name, phone |
+| `funds_transfer@2` | member_id, from_share, to_share, amount, memo | confirmation, amount |
+| `open_new_share@1` | member_id, share_type, deposit | confirmation, share_type |
+| `place_account_hold@2` | member_id, share_id, reason, notes | confirmation, hold_status |
+
+Sign-on is covered as a configured precondition rather than a recorded
+artifact — it runs on every capability, for both operator profiles, and is what
+the session-timeout recovery calls. `docs/ADAPTATION.md` §7 explains why
+recording it would have meant weakening redaction.
+
+## Other commands
+
+```bash
+python3 -m src.cli stability --artifact-id check_member_balance --version 1 \
+  --param member_id=100234 --param share_id=100234-S0070 --runs 5
+
+python3 -m src.cli health        # locator-ladder drift across replay history
+```
+
+---
+
+# The original take-home
+
+Everything below is the phase-by-phase build log for the self-built mock app
+this system was first developed against. It is still fully runnable (`--tenant a`
+/ `--tenant b`) and its tests are part of the 172 above — the mock is now just
+another entry in `config/targets/`, which is what keeps the claim that adapting
+is a configuration exercise honest rather than asserted.
+
+## Reviewer quickstart (mock app)
+
+
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt && python3 -m playwright install chromium
+python3 -m pytest tests/ -q                      # 172 passing
 
 cp .env.example .env                             # add OPENAI_API_KEY for discovery only
 ```
@@ -62,6 +286,8 @@ to what it demonstrates.
 - [x] Phase 6 — human escalation & handoff (discovery-stuck and budget-exceeded paths)
 - [x] Phase 7 — tenant overlay (multi-tenant reuse)
 - [x] Phase 8 — evidence + REPORT.md
+- [x] Adaptation — MERIDIAN CORE: six capabilities, capability API, dashboard
+      (see the demo path at the top of this file and `docs/ADAPTATION.md`)
 
 ## Requirements
 
@@ -166,7 +392,7 @@ LLM-driven trace stays focused on the actual capability being discovered.
 python3 -m pytest tests/ -v
 ```
 
-Expected: **24 passed**. This covers:
+This covers:
 - `tests/test_digest_and_tools.py` -- the perception (digest) and action
   (tools) layers against the *real* mock app in a real headless browser, no
   LLM involved: finds form fields correctly, completes the full
