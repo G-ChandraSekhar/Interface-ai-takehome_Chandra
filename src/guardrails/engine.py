@@ -55,6 +55,9 @@ class PolicyEngine:
         self.max_recovery_attempts_per_step: int = limits.get(
             "max_recovery_attempts_per_step", 2
         )
+        self.max_recovery_attempts_per_run: int = limits.get(
+            "max_recovery_attempts_per_run", 5
+        )
         self.sensitive_field_names: set[str] = set(cfg.get("sensitive_field_names", []))
         self.sensitive_output_fields: set[str] = set(cfg.get("sensitive_output_fields", []))
 

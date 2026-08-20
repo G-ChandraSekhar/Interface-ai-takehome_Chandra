@@ -89,6 +89,20 @@ limits:
   max_steps_per_run: 40
   max_run_duration_seconds: 300
   max_recovery_attempts_per_step: 2
+  # Recoveries allowed across a whole run, on top of the per-step budget.
+  #
+  # Both are needed. The per-step budget stops one step retrying forever. It
+  # does NOT stop a fault that fires on every request, because each step gets
+  # a fresh allowance and no single step ever exhausts its own -- the run
+  # simply advances until it meets a page whose controls are missing, and
+  # reports locator_not_found. Observed exactly that with a forced
+  # maintenance injection: the run recovered on s1, met the interstitial
+  # again on s2, and blamed a selector.
+  #
+  # Set above the per-step budget so an ordinary flaky page still clears
+  # normally; a condition that keeps coming back trips this instead and is
+  # named for what it is.
+  max_recovery_attempts_per_run: 5
 
 # Field names that must never appear in artifacts, logs, or evidence in
 # their raw form. The redactor masks these before anything is persisted.

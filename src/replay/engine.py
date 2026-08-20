@@ -450,10 +450,16 @@ def _execute_replay(
 
         step_telemetry = []
         recovery_attempts = {}
+        recovery_attempts_total = 0
         if handoff:
             handoff_controller = HandoffController(evidence, page=page)
 
-        for step in artifact.steps:
+        # Index-based rather than `for step in ...` so a step interrupted by a
+        # recoverable condition can be RETRIED after the condition clears,
+        # instead of being abandoned or skipped.
+        step_index = 0
+        while step_index < len(artifact.steps):
+            step = artifact.steps[step_index]
             resolution = resolve_locator(page, step.target)
 
             if isinstance(resolution, ResolutionFailure):
@@ -501,6 +507,60 @@ def _execute_replay(
                         page,
                         policy,
                     )
+                # A recoverable condition can block a step's control from
+                # ever appearing -- a maintenance interstitial replaces the
+                # page, so the ladder exhausts on a form that is not there
+                # rather than one that changed. Checking recovery only AFTER
+                # a successful action meant this was reported as a missing
+                # selector: a correct refusal with a name that sends the
+                # reader to the wrong place entirely.
+                #
+                # Recover, then retry the SAME step -- the step never ran, so
+                # advancing past it would silently skip part of the flow.
+                blocking = detect_recoverable_pattern(page_text, recoverable_patterns)
+                if blocking:
+                    attempts = recovery_attempts.get(step.step_id, 0)
+                    within_budget = (
+                        attempts < policy.max_recovery_attempts_per_step
+                        and recovery_attempts_total < policy.max_recovery_attempts_per_run
+                    )
+                    if within_budget:
+                        recovery_attempts[step.step_id] = attempts + 1
+                        recovery_attempts_total += 1
+                        _apply_recovery(page, blocking, artifact, evidence, chaos=chaos)
+                        evidence.log_event(
+                            "recovery_applied",
+                            step_id=step.step_id,
+                            condition=blocking.code,
+                            blocked_locator=True,
+                            attempts_this_step=attempts + 1,
+                            attempts_this_run=recovery_attempts_total,
+                        )
+                        continue  # retry this step, index unchanged
+                    return _finish(
+                        evidence,
+                        ReplayResult(
+                            status=ReplayStatus.FAILURE,
+                            failure=FailureDetail(
+                                step_class=FailureClass.SESSION_RECOVERY_EXHAUSTED,
+                                step_id=step.step_id,
+                                expected=(
+                                    "recoverable condition '" + blocking.code
+                                    + "' clears so this step's control appears"
+                                ),
+                                observed=(
+                                    "recovered " + str(recovery_attempts_total)
+                                    + " time(s) across this run and the condition "
+                                    "returned again, leaving the control absent"
+                                ),
+                            ),
+                            step_telemetry=step_telemetry,
+                            run_dir=str(run_dir),
+                        ),
+                        page,
+                        policy,
+                    )
+
                 return _finish(
                     evidence,
                     ReplayResult(
@@ -644,6 +704,7 @@ def _execute_replay(
                             recovery_applied=False,
                         )
                     )
+                    step_index += 1
                     continue
 
                 return _finish(
@@ -725,6 +786,40 @@ def _execute_replay(
             if recoverable_pattern:
                 recoverable = recoverable_pattern.code
                 attempts = recovery_attempts.get(step.step_id, 0)
+
+                # The run-wide ceiling, checked first. A condition that keeps
+                # returning never exhausts any single step's allowance -- each
+                # new step starts fresh -- so without this the run walks on
+                # until it reaches a page whose controls are absent and
+                # reports locator_not_found, blaming a selector for a fault.
+                # Naming it session_recovery_exhausted sends the reader to the
+                # condition rather than to the ladder.
+                if recovery_attempts_total >= policy.max_recovery_attempts_per_run:
+                    return _finish(
+                        evidence,
+                        ReplayResult(
+                            status=ReplayStatus.FAILURE,
+                            failure=FailureDetail(
+                                step_class=FailureClass.SESSION_RECOVERY_EXHAUSTED,
+                                step_id=step.step_id,
+                                expected=(
+                                    "recoverable condition '" + recoverable
+                                    + "' clears within the run's recovery budget"
+                                ),
+                                observed=(
+                                    "recovered " + str(recovery_attempts_total)
+                                    + " time(s) across this run and the condition "
+                                    "returned again (max_recovery_attempts_per_run="
+                                    + str(policy.max_recovery_attempts_per_run) + ")"
+                                ),
+                            ),
+                            step_telemetry=step_telemetry,
+                            run_dir=str(run_dir),
+                        ),
+                        page,
+                        policy,
+                    )
+
                 if attempts >= policy.max_recovery_attempts_per_step:
                     return _finish(
                         evidence,
@@ -743,6 +838,7 @@ def _execute_replay(
                         policy,
                     )
                 recovery_attempts[step.step_id] = attempts + 1
+                recovery_attempts_total += 1
                 _apply_recovery(page, recoverable_pattern, artifact, evidence, chaos=chaos)
                 recovery_applied = True
                 evidence.log_event(
@@ -755,6 +851,8 @@ def _execute_replay(
                         else "click_continue_legacy"
                     ),
                     http_status=status_tracker.status,
+                    attempts_this_step=attempts + 1,
+                    attempts_this_run=recovery_attempts_total,
                 )
 
             # A tier above 1 means the top-ranked locator no longer worked
@@ -780,6 +878,8 @@ def _execute_replay(
                     rescued_from=(resolution.attempts_as_dicts() if tier > 1 else None),
                 )
             )
+
+            step_index += 1
 
         if not checkpoint_met(artifact.checkpoint.url_pattern, params, page.url):
             return _finish(

@@ -1,0 +1,14 @@
+{"ts": "2026-08-20T21:00:54.572392+00:00", "event": "replay_started", "artifact_id": "check_member_balance", "version": 1, "params": {"member_id": "100234", "share_id": "100234-S0070"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-20T21:00:55.337693+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "maintenance"}
+{"ts": "2026-08-20T21:00:55.507853+00:00", "event": "fault_injection_armed", "kind": "maintenance", "error_rate": 0.0}
+{"ts": "2026-08-20T21:01:25.835362+00:00", "event": "recovery_resumed", "url": "https://web-sample.interface-hiring.com/members"}
+{"ts": "2026-08-20T21:01:25.835818+00:00", "event": "recovery_applied", "step_id": "s1", "condition": "maintenance_window", "kind": "click_text", "http_status": 503, "attempts_this_step": 1, "attempts_this_run": 1}
+{"ts": "2026-08-20T21:01:25.844290+00:00", "event": "locator_resolution_failed", "step_id": "s2", "attempts": [{"tier": 1, "strategy": "css_name_attr", "value": "input[name='q']", "ok": false, "reason": "no_match", "matched": 0}]}
+{"ts": "2026-08-20T21:01:56.021443+00:00", "event": "recovery_resumed", "url": "https://web-sample.interface-hiring.com/members"}
+{"ts": "2026-08-20T21:01:56.022123+00:00", "event": "recovery_applied", "step_id": "s2", "condition": "maintenance_window", "blocked_locator": true, "attempts_this_step": 1, "attempts_this_run": 2}
+{"ts": "2026-08-20T21:01:56.033541+00:00", "event": "locator_resolution_failed", "step_id": "s2", "attempts": [{"tier": 1, "strategy": "css_name_attr", "value": "input[name='q']", "ok": false, "reason": "no_match", "matched": 0}]}
+{"ts": "2026-08-20T21:02:26.259863+00:00", "event": "recovery_resumed", "url": "https://web-sample.interface-hiring.com/members"}
+{"ts": "2026-08-20T21:02:26.260583+00:00", "event": "recovery_applied", "step_id": "s2", "condition": "maintenance_window", "blocked_locator": true, "attempts_this_step": 2, "attempts_this_run": 3}
+{"ts": "2026-08-20T21:02:26.273253+00:00", "event": "locator_resolution_failed", "step_id": "s2", "attempts": [{"tier": 1, "strategy": "css_name_attr", "value": "input[name='q']", "ok": false, "reason": "no_match", "matched": 0}]}
+{"ts": "2026-08-20T21:02:26.324407+00:00", "event": "replay_finished", "status": "failure"}
+{"ts": "2026-08-20T21:02:26.540787+00:00", "event": "fault_injection_cleared"}

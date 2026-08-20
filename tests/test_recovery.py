@@ -438,3 +438,106 @@ def test_no_marker_matches_a_page_that_merely_warns():
     for page in healthy_pages:
         assert detect_business_outcome(page, detectors.business_outcomes) is None, page[:40]
         assert detect_hard_failure(page, detectors.hard_failures) is None, page[:40]
+
+
+# ---------------------------------------------------------------------------
+# The run-wide recovery ceiling
+# ---------------------------------------------------------------------------
+#
+# The per-step budget stops one step retrying forever. It cannot stop a
+# condition that returns on every page, because each step starts with a fresh
+# allowance and no single step ever exhausts its own. The run advances until it
+# reaches a page whose controls are absent and reports locator_not_found --
+# blaming a selector for a fault.
+#
+# Observed live: a forced maintenance injection recovered on s1, met the
+# interstitial again on s2, and failed as locator_not_found. Correct refusal,
+# wrong name, and the wrong name sends a reader to the ladder instead of to
+# the condition.
+
+
+def test_both_budgets_are_configured_and_the_run_ceiling_is_the_looser_one():
+    """An ordinary flaky page must still clear normally.
+
+    If the run ceiling were at or below the per-step budget, a single step
+    recovering twice would trip it, and the run-wide limit would fire on
+    exactly the case the per-step limit already handles well.
+    """
+    from src.guardrails.engine import PolicyEngine
+
+    policy = PolicyEngine()
+    assert policy.max_recovery_attempts_per_step >= 1
+    assert policy.max_recovery_attempts_per_run > policy.max_recovery_attempts_per_step
+
+
+def test_a_condition_that_returns_on_every_page_trips_the_run_ceiling():
+    """Simulates the shape directly: recoveries spread one per step, so the
+    per-step budget is never reached and only a run-wide count can see it."""
+    from src.guardrails.engine import PolicyEngine
+
+    policy = PolicyEngine()
+    per_step, per_run = (
+        policy.max_recovery_attempts_per_step,
+        policy.max_recovery_attempts_per_run,
+    )
+
+    attempts_per_step, total = {}, 0
+    tripped_on_step = None
+
+    for i in range(1, 20):
+        step_id = "s" + str(i)
+        if total >= per_run:
+            tripped_on_step = step_id
+            break
+        assert attempts_per_step.get(step_id, 0) < per_step, (
+            "the per-step budget should never fire here -- that is the point"
+        )
+        attempts_per_step[step_id] = attempts_per_step.get(step_id, 0) + 1
+        total += 1
+
+    assert tripped_on_step is not None, "a returning condition ran forever"
+    assert total == per_run
+
+
+def test_the_failure_names_the_condition_not_the_ladder():
+    """SESSION_RECOVERY_EXHAUSTED already exists for exactly this; before the
+    run ceiling it was unreachable for a fault that never cleared."""
+    from src.replay.result import FailureClass
+
+    assert FailureClass.SESSION_RECOVERY_EXHAUSTED.value == "session_recovery_exhausted"
+
+
+def test_a_blocked_locator_is_checked_for_a_recoverable_condition():
+    """The reason the run ceiling alone did not fix the mislabelled failure.
+
+    A maintenance interstitial REPLACES the page, so the step's control is not
+    there at all and the ladder exhausts. Recovery was only checked after an
+    action succeeded -- but the interstitial blocks the action itself, so
+    recovery never got a chance and the run reported a missing selector.
+
+    The engine now checks the ladder-failure path for a recoverable condition,
+    clears it, and retries the SAME step: the step never ran, so advancing
+    past it would silently skip part of the flow.
+    """
+    import inspect
+    from src.replay import engine
+
+    source = inspect.getsource(engine._execute_replay)
+    ladder_branch = source.split("isinstance(resolution, ResolutionFailure)")[1]
+    ladder_branch = ladder_branch.split("loc, strategy, tier =")[0]
+
+    assert "detect_recoverable_pattern" in ladder_branch, (
+        "the ladder-failure path must ask whether the page is a known "
+        "recoverable condition before blaming the locator"
+    )
+    assert "continue  # retry this step, index unchanged" in ladder_branch
+
+
+def test_the_step_loop_can_hold_its_position():
+    """Retrying requires an index the loop controls, not a for-each."""
+    import inspect
+    from src.replay import engine
+
+    source = inspect.getsource(engine._execute_replay)
+    assert "while step_index < len(artifact.steps):" in source
+    assert "for step in artifact.steps:" not in source

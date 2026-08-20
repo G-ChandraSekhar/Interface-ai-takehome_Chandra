@@ -530,6 +530,31 @@ for `Turing`, while a search matching nobody still short-circuits to
 `MEMBER_NOT_FOUND` before extraction — a legitimate empty result is a business
 outcome, not a checkpoint failure.
 
+### 4.17 Two recovery budgets, because they stop different things
+
+The per-step budget stops one step retrying forever. It cannot stop a condition
+that returns on every page: each step begins with a fresh allowance, so no
+single step ever exhausts its own. The run keeps advancing until it reaches a
+page whose controls are missing and reports `locator_not_found` — blaming a
+selector for a fault.
+
+That is not hypothetical; it is what the forced-maintenance run did (§6). The
+refusal was correct and the label was wrong, which matters because a label is
+where a reader starts debugging.
+
+`max_recovery_attempts_per_run` is checked first and set **above** the per-step
+budget. The ordering is deliberate: an ordinary flaky page still clears through
+the per-step path exactly as before, and only a condition that keeps coming
+back reaches the run ceiling — where it is named `SESSION_RECOVERY_EXHAUSTED`,
+a failure class that already existed and was simply unreachable for a fault
+that never cleared.
+
+The general shape is worth naming, because it is the third time this project
+has hit it: **a budget scoped to one unit cannot see a problem that spreads
+across units.** Per-step recovery attempts miss a fault on every page, exactly
+as per-step locator telemetry misses drift across runs — which is why
+`cli.py health` exists alongside `stability`. Same lesson, different axis.
+
 ---
 
 ## 5. How the work unfolded
@@ -559,6 +584,7 @@ criterion.
 | 16 | Replaying the two capabilities that had only been recorded | Two over-fitted detector markers found; `place_account_hold` had never been replayable |
 | 17 | Re-recording `member_inquiry` to bind `search_by` | Dead parameter closed; exposed that a URL checkpoint cannot express a search-by-name destination |
 | 18 | Checkpoint content assertions | Closes a limitation `REPORT.md` has carried since the take-home; `@3` recorded on one surname, replays on another |
+| 19 | Run-wide recovery ceiling | A returning fault now reports the condition rather than a missing selector |
 
 Reconnaissance before code was the highest-leverage decision. Three scripts, no
 guesses: every design choice after step 3 was made against observed behaviour
@@ -568,7 +594,7 @@ rather than the brief's description of it.
 
 ## 6. Verification
 
-**194 tests passing**, up from 126 — including the 13 browser tests that
+**197 tests passing**, up from 126 — including the 13 browser tests that
 exercise the real mock app through every changed path.
 
 Live against MERIDIAN CORE:
@@ -591,12 +617,16 @@ Live against MERIDIAN CORE:
 | Recovery, live | maintenance interstitial detected, `Continue` clicked, position restored — `recovery_applied: True` on `s1` |
 | Content checkpoint | `member_inquiry@3` recorded on `Hopper`, replays on `Turing`; a search matching nobody still returns `MEMBER_NOT_FOUND` |
 
-**One honest imprecision in the recovery run.** With a *forced* fault (fires on
-every request) the run recovered on `s1`, met the interstitial again on `s2`,
-and reported `locator_not_found` rather than `session_recovery_exhausted` — the
-recovery budget is per-step, so no single step exhausts it and the run simply
-runs out of page. Correct refusal, imprecise label. A per-run recovery ceiling
-alongside the per-step one would report this properly.
+**An imprecision in that recovery run, since fixed.** With a *forced* fault
+(fires on every request) the run recovered on `s1`, met the interstitial again
+on `s2`, and reported `locator_not_found` rather than
+`session_recovery_exhausted`. The recovery budget was per-step, so a condition
+returning on every page exhausted no single step's allowance — each step began
+with a fresh one — and the run simply advanced until it met a page whose
+controls were absent. A correct refusal with the wrong name, and the wrong name
+sends a reader to the locator ladder instead of to the condition.
+`max_recovery_attempts_per_run` now sits alongside the per-step budget; see
+§4.17.
 
 ---
 
@@ -662,13 +692,10 @@ the artifact's contract, not just the code's logic.
 
 In priority order:
 
-1. **A per-run recovery ceiling.** The budget is per-step, so a fault that
-   never clears exhausts no single step's allowance and the run reports
-   `locator_not_found` rather than `session_recovery_exhausted` (§6).
-2. More structural checks on the artifact contract, in the spirit of §4.11 —
+1. More structural checks on the artifact contract, in the spirit of §4.11 —
    the defect class that unit tests are constitutionally unable to catch.
-3. Recalibrating the locator ladder's confidence priors from accumulated
+2. Recalibrating the locator ladder's confidence priors from accumulated
    telemetry rather than leaving them as fixed guesses.
-4. A `DesktopSurface` behind the same locator-ladder contract, and
+3. A `DesktopSurface` behind the same locator-ladder contract, and
    authenticated console access — both carried over from the take-home's own
    cut list and both still outstanding.
