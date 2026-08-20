@@ -8,8 +8,8 @@ The system now runs against **two** targets: MERIDIAN CORE
 ([web-sample.interface-hiring.com](https://web-sample.interface-hiring.com/)),
 the adaptation target, and the original self-built mock app it was first
 developed on. Pointing it at a new console is a YAML file in `config/targets/`
-plus, at most, a small adapter — see `docs/ADAPTATION.md` for the audit of what
-that actually took, and `REPORT.md` for the original design write-up.
+plus, at most, a small adapter — see `docs/ADAPTATION.md` for the write-up of what
+that actually took, and `docs/ADAPTATION-LOG.md` for the full development log, and `REPORT.md` for the original design write-up.
 
 ---
 
@@ -244,11 +244,11 @@ whether claimed authority softens anything.
 Two ways to find a member, because they are different capabilities rather than
 versions of one: by number, and by last name. `artifacts/history/` holds the
 earlier attempt to treat them as versions — kept as evidence, out of the
-catalog. See `docs/ADAPTATION.md` §4.19.
+catalog. See `docs/ADAPTATION-LOG.md` §4.19.
 
 Sign-on is covered as a configured precondition rather than a recorded
 artifact — it runs on every capability, for both operator profiles, and is what
-the session-timeout recovery calls. `docs/ADAPTATION.md` §7 explains why
+the session-timeout recovery calls. `docs/ADAPTATION-LOG.md` §7 explains why
 recording it would have meant weakening redaction.
 
 ## Other commands
