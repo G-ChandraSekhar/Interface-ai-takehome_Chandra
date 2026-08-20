@@ -23,7 +23,7 @@ the API, and the dashboard do not.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && python3 -m playwright install chromium
-python3 -m pytest tests/ -q                      # 172 passing
+python3 -m pytest tests/ -q                      # 215 passing
 ```
 
 Credentials default to the demo operators MERIDIAN prints on its own sign-on
@@ -40,10 +40,11 @@ export MERIDIAN_SUPERVISOR=super1 MERIDIAN_SUPERVISOR_PASSWORD=password
 python3 -m uvicorn src.capability_api.server:app --port 4600
 ```
 
-Open **<http://127.0.0.1:4600>**. One process serves both: the capability
+Open **<http://127.0.0.1:4600>**. One process serves everything: the capability
 catalog, run history read straight off the evidence bundles, each run's inputs
-and structured outputs, its locator-resolution tiers, its screenshots, and its
-event log. The **MERIDIAN / All** toggle switches between the current target's
+and structured outputs, its locator-resolution tiers, its screenshots, its
+event log, and — behind the **Ask** button — a chatbot that drives the same
+API. The **MERIDIAN / All** toggle switches between the current target's
 working set and the full archive.
 
 Leave it running — it re-reads evidence every few seconds, so runs from the
@@ -192,6 +193,42 @@ single page the capability ends on, and every declared input must be used by
 some step — an artifact advertising a parameter nothing consumes would accept a
 caller's value and silently ignore it.
 
+## 7. Ask it in plain language (needs `OPENAI_API_KEY`)
+
+Click **Ask** in the dashboard header, or use the endpoint directly. The
+chatbot writes no tool definitions of its own — the capability catalog *is* its
+tool list, so a capability recorded tomorrow is callable with no code change.
+
+Three requests, one per risk tier:
+
+```bash
+# safe -- runs immediately
+curl -s -X POST localhost:4600/chat -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"What is the balance of share 100234-S0070?"}]}' \
+  | python3 -m json.tool
+
+# mutating -- comes back needing confirmation, with a signed token
+curl -s -X POST localhost:4600/chat -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"Update member 100234 phone to 555-0177"}]}' \
+  | python3 -m json.tool
+
+# irreversible -- refused by the policy engine, with an evidence bundle
+curl -s -X POST localhost:4600/chat -H 'Content-Type: application/json' \
+  -d '{"messages":[{"role":"user","content":"Run the funds_transfer capability with member_id 100234, from_share 100234-S0070, to_share 100234-S0001-3, amount 5.00, memo test. Call the tool."}]}' \
+  | python3 -m json.tool
+```
+
+In the UI the middle one shows a **Confirm and run** control; the third shows
+none, because no confirmation exists that authorises an irreversible action
+from a conversation. That contrast is the risk model in one screen.
+
+The confirmation is an HMAC-signed token over the exact parameters rather than
+the model noticing you agreed — the model never sees the token, and the
+parameters are read back out of it, so altering one digit of the phone number
+invalidates the signature. `scripts/probe_chat.py` exercises nine standards
+against a running instance, including whether a refusal gets routed around and
+whether claimed authority softens anything.
+
 ## Capabilities
 
 | Capability | Inputs | Outputs |
@@ -215,6 +252,10 @@ python3 -m src.cli stability --artifact-id check_member_balance --version 1 \
   --param member_id=100234 --param share_id=100234-S0070 --runs 5
 
 python3 -m src.cli health        # locator-ladder drift across replay history
+
+# Recompute every figure the dashboard shows, straight from the evidence
+# bundles by a different route, and report any disagreement.
+python3 scripts/audit_dashboard.py --target meridian
 ```
 
 ---
@@ -233,7 +274,7 @@ is a configuration exercise honest rather than asserted.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && python3 -m playwright install chromium
-python3 -m pytest tests/ -q                      # 172 passing
+python3 -m pytest tests/ -q                      # 215 passing
 
 cp .env.example .env                             # add OPENAI_API_KEY for discovery only
 ```

@@ -555,6 +555,92 @@ across units.** Per-step recovery attempts miss a fault on every page, exactly
 as per-step locator telemetry misses drift across runs — which is why
 `cli.py health` exists alongside `stability`. Same lesson, different axis.
 
+### 4.17b Auditing the dashboard's own numbers
+
+Every figure the dashboard shows is derived, and a metric that is confidently
+wrong is worse than one that is missing: nobody re-checks a number that looks
+plausible. `scripts/audit_dashboard.py` recomputes each one — status, duration,
+human-in-loop seconds, locator tiers, outputs, event counts — straight from
+`log.jsonl` and `result.json`, by a deliberately *different* route than
+`runs.py` takes, and reports disagreements. Zero across 38 MERIDIAN runs.
+
+It immediately caught its own author: changing `_display_status()` without
+updating the independent check flagged 72 rows.
+
+Those 72 turned out to be `replay_started → replay_denied` — the guardrails
+refusing before a run began, on a missing parameter or an off-allowlist
+origin. They write no `result.json`, so they displayed as **`unknown`**,
+burying the clearest evidence the policy engine exists in the least
+informative word available. **A refusal is a decision, not an absence of one.**
+They now read as `denied`, with their own colour.
+
+Two things a reader of the dashboard should know, both judgement calls rather
+than defects. `escalated` and `recovered` are display overrides on an engine
+status of `success`, so the green count alone *undercounts* completed runs —
+a run that finished perfectly but needed a human shows purple. And `duration`
+is last-event minus first, so for a handoff run it includes the human's time;
+the separate `human Ns` figure isolates it.
+
+One run legitimately remains `unknown`: a discovery interrupted mid-escalation,
+which has no outcome to report rather than an unreadable one.
+
+### 4.18 A conversational front door that enforces all three tiers
+
+**It writes no tool definitions.** `artifact_to_tool_schema()` has emitted
+OpenAI-shaped function schemas since the take-home, so the catalog *is* the
+tool list: record a capability and the chatbot can call it with no code change.
+That is §3.2's claim exercised rather than asserted. Maintained separately they
+would drift, and the drift would surface as a model calling a capability with
+the wrong arguments.
+
+**The first version was safe and wrong.** It refused mutating and irreversible
+actions identically, collapsing three tiers into two — so a teller changing a
+phone number was told to use the operator console, which is the *irreversible*
+tier's justification and does not apply to a record edit. Being over-cautious
+is still being inaccurate, and the middle tier exists precisely so these two
+are not treated alike.
+
+Now: safe runs immediately; **mutating** returns a pending action the person
+confirms with a deliberate click; **irreversible** is refused outright, and no
+confirmation exists that changes that.
+
+**Confirmation is a signed token, not the model noticing agreement.** The
+obvious build lets the model see that the person said yes. That makes
+confirmation a *model judgement* — and a model can be talked into judging
+almost anything ("they approved this earlier", "they said yes to the last
+one") — while leaving nothing checkable afterwards. Instead the pending action
+is HMAC-signed over its exact parameters. The token is never shown to the
+model, the parameters are read back **out of the token** rather than from the
+request, it expires, and it can never be minted for an irreversible action.
+Verified live: altering one digit of the phone number invalidates the
+signature and nothing runs.
+
+**Three defects, all the same shape: the model imitating a guarantee rather
+than invoking it.**
+
+| What it did | What was wrong |
+|---|---|
+| Declined a transfer politely | Never called the tool; the policy engine was never consulted |
+| Asked "do you confirm?" | Never called the tool; no token existed, so the person had a question they could not answer |
+| Explained a phone update as a wire transfer | Told them to use the console while a working confirm button sat underneath |
+
+All three *looked* correct. A person watching the first would have concluded
+the guardrail worked — it does, but nothing in that request exercised it.
+
+> This is the failure mode specific to putting a model in front of a system
+> with real guarantees: it will produce a convincing description of a
+> guarantee it never touched.
+
+The prompt now requires calling the capability, and distinguishes asking for a
+missing **argument** (correct, and it does refuse to invent a member number)
+from asking for **permission** (never — the system decides that). Each defect
+is pinned by a test that reads the prompt or the code path, because "it came
+out right once" is not a property.
+
+`scripts/probe_chat.py` exercises nine standards against the running chatbot,
+including whether a refusal gets routed around, whether claimed authority
+softens anything, and whether page content is treated as instructions.
+
 ---
 
 ## 5. How the work unfolded
@@ -585,6 +671,8 @@ criterion.
 | 17 | Re-recording `member_inquiry` to bind `search_by` | Dead parameter closed; exposed that a URL checkpoint cannot express a search-by-name destination |
 | 18 | Checkpoint content assertions | Closes a limitation `REPORT.md` has carried since the take-home; `@3` recorded on one surname, replays on another |
 | 19 | Run-wide recovery ceiling | A returning fault now reports the condition rather than a missing selector |
+| 20 | Auditing the dashboard's derived figures | Zero disagreements; 72 guardrail refusals were mislabelled `unknown` |
+| 21 | Chatbot | Three tiers enforced; three defects found, all the model imitating a guarantee rather than invoking it |
 
 Reconnaissance before code was the highest-leverage decision. Three scripts, no
 guesses: every design choice after step 3 was made against observed behaviour
@@ -594,7 +682,7 @@ rather than the brief's description of it.
 
 ## 6. Verification
 
-**197 tests passing**, up from 126 — including the 13 browser tests that
+**215 tests passing**, up from 126 — including the 13 browser tests that
 exercise the real mock app through every changed path.
 
 Live against MERIDIAN CORE:
@@ -616,6 +704,10 @@ Live against MERIDIAN CORE:
 | Business outcome, unplanned | a transfer refused for `Source share is HOLD`, reported not crashed |
 | Recovery, live | maintenance interstitial detected, `Continue` clicked, position restored — `recovery_applied: True` on `s1` |
 | Content checkpoint | `member_inquiry@3` recorded on `Hopper`, replays on `Turing`; a search matching nobody still returns `MEMBER_NOT_FOUND` |
+| Chatbot, safe tier | balance read from a plain-language request, figure reported verbatim |
+| Chatbot, mutating tier | phone update held for confirmation, confirmed by click, applied — and a tampered token refused |
+| Chatbot, irreversible tier | transfer refused by the **policy engine**, with an evidence bundle |
+| Dashboard figures | every displayed number recomputed from raw evidence — no disagreements |
 
 **An imprecision in that recovery run, since fixed.** With a *forced* fault
 (fires on every request) the run recovered on `s1`, met the interstitial again
@@ -643,8 +735,10 @@ Per §5 of the brief, stated rather than discovered:
   which is the wrong trade. Sign-on is covered better as a configured
   precondition: exercised on **every run of every capability**, working live for
   both operator profiles, and it is what the `reauthenticate` recovery calls.
-- **The chatbot.** Optional per the team's guidance; the API surface is what
-  matters and it is real.
+- **DOM snapshots.** §3.4 lists them among the evidence a run should carry.
+  The core never emitted them — evidence is `log.jsonl`, `result.json` and
+  screenshots — and the screenshots plus the per-candidate locator diagnostics
+  cover the debugging need they were there for.
 - **A transient-fault run that recovers *and* completes.** Needs a posting
   capability with `--error-rate` plus a human at the handoff console.
   MERIDIAN's random error rate applies only to posting actions, so a read-only
