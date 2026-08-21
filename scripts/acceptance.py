@@ -155,10 +155,20 @@ def main():
 
     # ---- 3.5 guarantees still wired --------------------------------------
     try:
-        chat_src = (REPO / "src/capability_api/chat.py").read_text()
-        check("3.5", "chatbot cannot confirm irreversible",
-              "irreversible_confirmed=False" in chat_src
-              and "irreversible_confirmed=True" not in chat_src)
+        # Follows the guarantee, not the file. The confirmation machinery
+        # moved out of chat.py into invoke.py so both surfaces share one
+        # implementation -- and a check pinned to a filename would have read
+        # that as the guarantee disappearing.
+        surfaces = list((REPO / "src/capability_api").glob("*.py"))
+        sources = {f.name: f.read_text() for f in surfaces}
+
+        check("3.5", "irreversible is never confirmed, on any surface",
+              all("irreversible_confirmed=True" not in src for src in sources.values()))
+        check("3.5", "and it is hardcoded False where the engine is called",
+              any("irreversible_confirmed=False" in src for src in sources.values()))
+        check("3.5", "one shared invocation path, not one per surface",
+              "from src.capability_api.invoke import" in sources.get("chat.py", ""))
+        chat_src = sources.get("chat.py", "")
         check("3.5", "chatbot confirmation is signed",
               "hmac" in chat_src and "verify_token" in chat_src)
 
