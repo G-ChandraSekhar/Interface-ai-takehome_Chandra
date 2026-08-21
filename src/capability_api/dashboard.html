@@ -34,23 +34,57 @@
      idea of the system. AMBER IS RESERVED FOR THE HUMAN and appears
      nowhere else: in an automated system, a person is the warm thing.
      ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------
+     A supervisory console over a bank's teller system.
+
+     GROUND. Deep indigo rather than neutral black, and layered: the rail is
+     recessed BELOW the page, the content sits ON it, panels rise above that.
+     Three real planes with light behaving consistently across them -- a top
+     hairline where a surface catches light, a shadow where it casts one.
+     Flatness was the complaint and flatness is a lighting problem, not a
+     colour one.
+
+     LIGHT. Each run's detail pane is lit from above in its own outcome
+     colour. You feel whether a run went well before you read a word of it.
+     That is the one bold move; everything else stays disciplined.
+
+     COLOUR CARRIES MEANING, ONE JOB EACH. Business outcome was amber and the
+     human was also amber -- two different meanings wearing the same colour,
+     which is exactly why the palette read as decoration. The host's answers
+     are now GOLD; a person in the loop is HOT AMBER, and appears nowhere
+     else.
+
+     TYPE. IBM Plex -- these consoles descend from IBM terminals. Every value
+     is monospaced with tabular figures, because every value on this page came
+     off a fixed-width screen and columns of numbers should line up.
+     ------------------------------------------------------------------ */
   :root {
-    --ink:        #0B1017;
-    --surface:    #121A24;
-    --surface-2:  #18222E;
-    --line:       #26323F;
-    --paper:      #E4EAF1;
-    --muted:      #8394A7;
-    --dim:        #5A6879;
+    --void:       #05080F;
+    --rail:       #080D18;
+    --ink:        #0A1120;
+    --surface:    #101A2C;
+    --surface-2:  #16233A;
+    --raised:     #1B2B45;
+    --line:       #223252;
+    --line-soft:  #1A2740;
+    --lift:       rgba(255,255,255,0.055);
 
-    --success:    #4FB286;
-    --outcome:    #E0A458;
-    --recovered:  #6C9BCF;
-    --failure:    #D96A6A;
-    --escalated:  #B084CC;
-    --denied:     #7C8AA0;
+    --paper:      #E9EEF7;
+    --muted:      #8FA1BE;
+    --dim:        #5F718F;
 
-    --human:      #E8A33D;
+    --success:    #3DD68C;
+    --outcome:    #D4A82E;
+    --recovered:  #5B9DF9;
+    --failure:    #F2555A;
+    --escalated:  #C084FC;
+    --denied:     #7A8CA8;
+
+    --human:      #FF9F45;
+
+    --shadow-sm:  0 1px 2px rgba(0,0,0,.5);
+    --shadow-md:  0 4px 14px rgba(0,0,0,.45);
+    --shadow-lg:  0 14px 40px rgba(0,0,0,.55);
 
     --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
     --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
@@ -60,7 +94,7 @@
 
   body {
     margin: 0;
-    background: var(--ink);
+    background: var(--void);
     color: var(--paper);
     font-family: var(--sans);
     font-size: 14px;
@@ -72,18 +106,32 @@
 
   /* --- masthead ---------------------------------------------------- */
   header {
+    position: relative; z-index: 3;
+    background: linear-gradient(180deg, var(--surface) 0%, var(--ink) 100%);
     border-bottom: 1px solid var(--line);
+    box-shadow: var(--shadow-md);
     padding: 18px 24px 14px;
     display: flex;
     align-items: baseline;
     gap: 16px;
     flex-wrap: wrap;
   }
+  /* The console names the host it supervises, in the host's own vernacular:
+     an operator line, the way MERIDIAN itself prints one at the foot of every
+     screen. Cheaper than a logo and it says what this is. */
   h1 {
-    font-size: 17px;
-    font-weight: 700;
-    letter-spacing: -0.015em;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.005em;
     margin: 0;
+    display: flex; align-items: baseline; gap: 9px;
+  }
+  h1 .over {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 500;
+    letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--dim);
+    border: 1px solid var(--line); border-radius: 3px;
+    padding: 2px 6px;
   }
   .sub {
     font-family: var(--mono);
@@ -132,14 +180,33 @@
   }
   @media (max-width: 900px) {
     main { grid-template-columns: 1fr; height: auto; }
-    .pane-left { max-height: 50vh; }
+    /* The rail is BELOW the page: darker, with the content's shadow falling
+     across its inner edge. The eye reads it as a shelf rather than a column. */
+  .pane-left {
+    background: var(--rail);
+    box-shadow: inset -14px 0 22px -18px #000; max-height: 50vh; }
   }
 
   .pane-left {
     border-right: 1px solid var(--line);
     overflow-y: auto;
   }
-  .pane-right { overflow-y: auto; padding: 24px 28px 60px; }
+  .pane-right {
+    overflow-y: auto; padding: 24px 28px 60px;
+    background: var(--ink);
+    position: relative;
+  }
+
+  /* THE ONE BOLD MOVE. Each run lights its own pane from above in its
+     outcome colour, so you feel how it went before reading a word. Sits
+     behind everything, never tints text. */
+  .pane-right::before {
+    content: ''; position: absolute; inset: 0 0 auto 0; height: 320px;
+    background: radial-gradient(120% 100% at 22% 0%,
+                color-mix(in oklab, var(--glow, transparent) 13%, transparent) 0%,
+                transparent 68%);
+    pointer-events: none;
+  }
 
   /* Measure. On a wide monitor an unconstrained detail pane stretches every
      card edge to edge, which puts a label and its value a hand-span apart and
@@ -147,6 +214,13 @@
      reading width and left-aligned, so the page looks the same on a laptop
      and a 27-inch display. */
   .detail { max-width: 1180px; }
+
+  /* A selected run is lit from its own left edge in its outcome colour --
+     the same light that fills the detail pane, so the rail and the content
+     read as one object rather than two lists. */
+  .run.active { background: linear-gradient(90deg,
+             color-mix(in oklab, var(--rowc, var(--recovered)) 13%, transparent) 0%,
+             transparent 62%); }
 
   .section-label {
     font-family: var(--mono);
@@ -409,24 +483,38 @@
 
   .verdict { display:flex; align-items:center; gap:9px; flex:none; padding-top:6px; }
   .verdict-dot { width:9px; height:9px; border-radius:50%; background:var(--v);
-                 box-shadow:0 0 0 4px color-mix(in oklab, var(--v) 18%, transparent); }
+                 box-shadow:0 0 0 4px color-mix(in oklab, var(--v) 16%, transparent),
+                            0 0 16px 1px color-mix(in oklab, var(--v) 55%, transparent); }
   .verdict-word { font-family:var(--mono); font-size:11.5px; letter-spacing:0.09em;
                   text-transform:uppercase; color:var(--v); }
   .verdict-meta { font-family:var(--mono); font-size:11px; color:var(--dim); }
 
-  .banner { margin:18px 0 4px; padding:13px 16px; border-radius:7px;
-            background:color-mix(in oklab, var(--v) 8%, transparent);
-            border-left:2.5px solid var(--v); display:flex; flex-direction:column; gap:4px; }
+  .banner { margin:18px 0 4px; padding:14px 17px; border-radius:8px;
+            background:linear-gradient(180deg,
+              color-mix(in oklab, var(--v) 13%, var(--surface)) 0%,
+              color-mix(in oklab, var(--v) 6%, var(--surface)) 100%);
+            border:1px solid color-mix(in oklab, var(--v) 26%, transparent);
+            border-left:2.5px solid var(--v);
+            box-shadow:var(--shadow-md);
+            display:flex; flex-direction:column; gap:4px; }
   .banner b { font-family:var(--mono); font-size:11.5px; letter-spacing:0.06em; color:var(--v); }
   .banner .expected { font-family:var(--mono); font-size:11px; color:var(--dim); }
 
   /* --- in / out ------------------------------------------------------ */
   .io { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:22px 0 6px; }
-  .io section { background:var(--surface); border:1px solid var(--line);
-                border-radius:8px; padding:14px 16px; }
+  /* Raised: a lighter top edge where the surface catches the light, a real
+     shadow where it casts one. Two hairlines doing the work a border alone
+     cannot. */
+  .io section {
+    background:linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+    border:1px solid var(--line-soft); border-top-color:var(--lift);
+    border-radius:9px; padding:13px 18px 15px;
+    box-shadow:var(--shadow-md);
+  }
   .kv { display:flex; gap:12px; padding:3px 0; font-family:var(--mono); font-size:12px; }
   .kv span { color:var(--muted); min-width:96px; flex:none; }
-  .kv b { font-weight:500; word-break:break-word; }
+  .kv b { font-weight:500; word-break:break-word;
+          font-variant-numeric: tabular-nums; }
   .kv b.masked { color:var(--dim); letter-spacing:0.04em; }
   .none { color:var(--dim); font-size:12px; margin:2px 0 0; }
 
@@ -445,8 +533,9 @@
 
   .node { position:relative; padding:0 0 15px 0; }
   .node .mark { position:absolute; left:-22px; top:5px; width:9px; height:9px;
-                border-radius:50%; background:var(--ink);
-                border:1.5px solid var(--line); }
+                border-radius:50%; background:var(--surface);
+                border:1.5px solid var(--line);
+                box-shadow:var(--shadow-sm); }
   .node .body { display:flex; flex-direction:column; gap:1px; }
   .node b { font-family:var(--mono); font-size:12px; font-weight:500; }
   .node .sub { font-family:var(--mono); font-size:10.5px; color:var(--dim); }
@@ -459,7 +548,8 @@
   .node.human { padding:6px 0 18px 0; }
   .node.human .mark {
     left:-27px; top:2px; width:19px; height:19px; border-radius:50%;
-    background:var(--ink); border:2px solid var(--human);
+    background:var(--surface); border:2px solid var(--human);
+    box-shadow:0 0 22px 2px color-mix(in oklab, var(--human) 45%, transparent);
   }
   .node.human b { color:var(--human); font-size:12.5px; }
   .node.human .body { padding:9px 13px; border-radius:7px;
@@ -467,13 +557,16 @@
     border-left:2px solid var(--human); }
 
   .node.end { padding-bottom:0; }
-  .node.end .mark { background:var(--v); border-color:var(--v); width:11px; height:11px; left:-23px; }
+  .node.end .mark { background:var(--v); border-color:var(--v);
+                    width:11px; height:11px; left:-23px;
+                    box-shadow:0 0 18px 2px color-mix(in oklab, var(--v) 60%, transparent); }
   .node.end b { color:var(--v); letter-spacing:0.05em; text-transform:uppercase; font-size:11.5px; }
 
   .spine-note { font-size:12px; color:var(--dim); margin:10px 0 0; max-width:52ch; line-height:1.5; }
 
   /* --- evidence, beside the journal ---------------------------------- */
   .evidence { position:sticky; top:14px; }
+  .shot img { box-shadow: var(--shadow-md); }
   .evidence h4 { font-family:var(--mono); font-size:10px; letter-spacing:0.09em;
                  text-transform:uppercase; color:var(--muted); margin:16px 0 5px; }
   .shot { display:block; margin-bottom:11px; text-decoration:none; }
@@ -920,7 +1013,7 @@ function App() {
   return (
     <>
       <header>
-        <h1>Capability Console</h1>
+        <h1><span className="over">Meridian Core</span> Capability Console</h1>
         <span className="sub">{caps.length} capabilities · {runs.length} runs</span>
         <div className="scope">
           {Object.entries(SCOPES).map(([k,v]) => (
@@ -977,7 +1070,7 @@ function App() {
               <button
                 className={'run' + (selected === r.run_id ? ' active' : '')}
                 key={r.run_id}
-                style={{borderLeftColor: st.color}}
+                style={{borderLeftColor: st.color, '--rowc': st.color}}
                 onClick={() => setSelected(r.run_id)}
               >
                 <div className="run-top">
@@ -993,7 +1086,12 @@ function App() {
             );
           })}
         </div>
-        <div className="pane-right"><Detail runId={selected} /></div>
+        {/* The pane is lit in the selected run's outcome colour -- see
+            .pane-right::before. Set here because only App knows which run
+            is selected. */}
+        <div className="pane-right" style={{'--glow': statusOf(
+          (runs.find(r => r.run_id === selected) || {}).status
+        ).color}}><Detail runId={selected} /></div>
         {chatOpen && <Chat />}
       </main>
     </>
