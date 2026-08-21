@@ -1,0 +1,393 @@
+{
+  "artifact_id": "funds_transfer",
+  "name": "Funds transfer",
+  "version": 3,
+  "goal": "Using Member Inquiry, search for member number 100234, open their record, then go to Funds Transfer. Transfer 1.00 from share 100234-S0001-3 to share 100234-S0070 with the memo 'demo transfer'. Continue to the review screen and post the transfer. From the page shown after posting, report the confirmation number and the amount posted.",
+  "description": "Move money between two of a member's shares. The posting step is irreversible and needs a human at the operator console.",
+  "target": {
+    "tenant": "meridian",
+    "base_url": "https://web-sample.interface-hiring.com",
+    "route_prefix": ""
+  },
+  "input_params": {
+    "member_id": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    },
+    "from_share": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    },
+    "to_share": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    },
+    "amount": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    },
+    "memo": {
+      "type": "str",
+      "required": false,
+      "description": ""
+    }
+  },
+  "output_schema": {
+    "confirmation": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    },
+    "amount": {
+      "type": "str",
+      "required": true,
+      "description": ""
+    }
+  },
+  "steps": [
+    {
+      "step_id": "s1",
+      "action": "click",
+      "target_name": "Member Inquiry",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "link:Member Inquiry",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Member Inquiry",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Member Inquiry'"
+    },
+    {
+      "step_id": "s2",
+      "action": "type",
+      "target_name": "Value:",
+      "target": [
+        {
+          "strategy": "css_name_attr",
+          "value": "input[name='q']",
+          "confidence": 0.75
+        }
+      ],
+      "target_url": null,
+      "input_ref": "member_id",
+      "literal_value": null,
+      "description": "type 'Value:'"
+    },
+    {
+      "step_id": "s3",
+      "action": "click",
+      "target_name": "Search",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "button:Search",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Search",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members?by=number&q=100234",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Search'"
+    },
+    {
+      "step_id": "s4",
+      "action": "click",
+      "target_name": "Select",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "link:Select",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Select",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members/100234",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Select'"
+    },
+    {
+      "step_id": "s5",
+      "action": "click",
+      "target_name": "Funds Transfer",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "link:Funds Transfer",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Funds Transfer",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members/100234/transfer",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Funds Transfer'"
+    },
+    {
+      "step_id": "s6",
+      "action": "select",
+      "target_name": "From Share:",
+      "target": [
+        {
+          "strategy": "label_proximity",
+          "value": "From Share:|select",
+          "confidence": 0.85
+        },
+        {
+          "strategy": "css_name_attr",
+          "value": "select[name='from']",
+          "confidence": 0.75
+        }
+      ],
+      "target_url": null,
+      "input_ref": "from_share",
+      "literal_value": null,
+      "description": "select 'From Share:'"
+    },
+    {
+      "step_id": "s7",
+      "action": "select",
+      "target_name": "To Share:",
+      "target": [
+        {
+          "strategy": "label_proximity",
+          "value": "To Share:|select",
+          "confidence": 0.85
+        },
+        {
+          "strategy": "css_name_attr",
+          "value": "select[name='to']",
+          "confidence": 0.75
+        }
+      ],
+      "target_url": null,
+      "input_ref": "to_share",
+      "literal_value": null,
+      "description": "select 'To Share:'"
+    },
+    {
+      "step_id": "s8",
+      "action": "type",
+      "target_name": "Amount:",
+      "target": [
+        {
+          "strategy": "label_proximity",
+          "value": "Amount:|input",
+          "confidence": 0.85
+        },
+        {
+          "strategy": "css_name_attr",
+          "value": "input[name='amount']",
+          "confidence": 0.75
+        }
+      ],
+      "target_url": null,
+      "input_ref": "amount",
+      "literal_value": null,
+      "description": "type 'Amount:'"
+    },
+    {
+      "step_id": "s9",
+      "action": "type",
+      "target_name": "Memo:",
+      "target": [
+        {
+          "strategy": "label_proximity",
+          "value": "Memo:|input",
+          "confidence": 0.85
+        },
+        {
+          "strategy": "css_name_attr",
+          "value": "input[name='memo']",
+          "confidence": 0.75
+        }
+      ],
+      "target_url": null,
+      "input_ref": "memo",
+      "literal_value": null,
+      "description": "type 'Memo:'"
+    },
+    {
+      "step_id": "s10",
+      "action": "click",
+      "target_name": "Continue",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "button:Continue",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Continue",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members/100234/transfer/review",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Continue'"
+    },
+    {
+      "step_id": "s11",
+      "action": "click",
+      "target_name": "Post Transfer",
+      "target": [
+        {
+          "strategy": "role_name",
+          "value": "button:Post Transfer",
+          "confidence": 0.9
+        },
+        {
+          "strategy": "text",
+          "value": "Post Transfer",
+          "confidence": 0.55
+        }
+      ],
+      "target_url": "https://web-sample.interface-hiring.com/members/100234/transfer/post",
+      "input_ref": null,
+      "literal_value": null,
+      "description": "click 'Post Transfer'"
+    }
+  ],
+  "checkpoint": {
+    "description": "All required outputs (confirmation, amount) are visible on this page.",
+    "url_pattern": "/members/{member_id}/transfer/post",
+    "assertions": []
+  },
+  "output_extraction": {
+    "confirmation": {
+      "strategy": "table_row_label",
+      "label": "Confirmation",
+      "key_column": null,
+      "key_input_ref": null,
+      "key_literal": null
+    },
+    "amount": {
+      "strategy": "table_row_label",
+      "label": "Amount",
+      "key_column": null,
+      "key_input_ref": null,
+      "key_literal": null
+    }
+  },
+  "policy": {
+    "allowed_origins": [
+      "https://web-sample.interface-hiring.com"
+    ],
+    "allowed_actions": [
+      "click",
+      "select",
+      "type"
+    ]
+  },
+  "detectors": {
+    "business_outcomes": [
+      {
+        "marker": "No member records matched your search.",
+        "code": "MEMBER_NOT_FOUND",
+        "message": "No member record matched the search criteria.",
+        "http_status": 200,
+        "recovery": null
+      },
+      {
+        "marker": "RECORD NOT FOUND",
+        "code": "MEMBER_NOT_FOUND",
+        "message": "The requested member record does not exist on this host.",
+        "http_status": 404,
+        "recovery": null
+      },
+      {
+        "marker": "is not authorized to perform this",
+        "code": "SUPERVISOR_REQUIRED",
+        "message": "This function requires a supervisor profile. The operator in session is not authorized to complete it.",
+        "http_status": 403,
+        "recovery": null
+      },
+      {
+        "marker": "could not be validated:",
+        "code": "TRANSACTION_REJECTED",
+        "message": "The host rejected the request (for example insufficient available balance, a source share on hold, or a deposit below the minimum for the selected share type).",
+        "http_status": 400,
+        "recovery": null
+      },
+      {
+        "marker": "TRANSACTION REJECTED",
+        "code": "TRANSACTION_REJECTED",
+        "message": "The transaction could not be completed as entered.",
+        "http_status": 400,
+        "recovery": null
+      },
+      {
+        "marker": "Please correct the following:",
+        "code": "FIELD_VALIDATION_FAILED",
+        "message": "One or more submitted field values were rejected as invalid.",
+        "http_status": 400,
+        "recovery": null
+      }
+    ],
+    "recoverable": [
+      {
+        "marker": "SCHEDULED MAINTENANCE IN PROGRESS",
+        "code": "maintenance_window",
+        "message": "",
+        "http_status": 503,
+        "recovery": {
+          "kind": "click_text",
+          "value": "Continue",
+          "resume": true
+        }
+      },
+      {
+        "marker": "YOUR SESSION HAS TIMED OUT",
+        "code": "session_timeout",
+        "message": "",
+        "http_status": 440,
+        "recovery": {
+          "kind": "reauthenticate",
+          "value": null,
+          "resume": true
+        }
+      }
+    ],
+    "hard_failures": [
+      {
+        "marker": "APPLICATION ERROR",
+        "code": "app_error",
+        "message": "The host reported an unexpected application error.",
+        "http_status": 500,
+        "recovery": null
+      }
+    ]
+  },
+  "stability": null,
+  "created_from_run_id": "20260820T182346Z_8a279f",
+  "created_at": "2026-08-20T18:23:46.961127Z",
+  "approved": false
+}
