@@ -3,6 +3,7 @@
   "name": "Place account hold",
   "version": 2,
   "goal": "Using Member Inquiry, search for member number 102777, open their record, then go to Place Account Hold. On that form you must explicitly set every field yourself, even where a value already appears selected: select share 102777-S0001 in the Share dropdown, select LEGAL in the Reason Code dropdown, and type 'demo hold' in Notes. Then continue to the review screen and apply the hold. From the page shown after applying, report the confirmation number, and report as 'hold_status' the complete text shown on the Share line exactly as written.",
+  "description": null,
   "target": {
     "tenant": "meridian",
     "base_url": "https://web-sample.interface-hiring.com",
@@ -12,34 +13,40 @@
     "member_id": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "102777"
     },
     "share_id": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "102777-S0001"
     },
     "reason": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "LEGAL"
     },
     "notes": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "demo hold"
     }
   },
   "output_schema": {
     "confirmation": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": null
     },
     "hold_status": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": null
     }
   },
   "steps": [
@@ -251,7 +258,8 @@
   ],
   "checkpoint": {
     "description": "All required outputs (confirmation, hold_status) are visible on this page.",
-    "url_pattern": "/members/{member_id}/hold/post"
+    "url_pattern": "/members/{member_id}/hold/post",
+    "assertions": []
   },
   "output_extraction": {
     "confirmation": {

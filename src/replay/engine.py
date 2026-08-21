@@ -86,7 +86,36 @@ def replay_artifact(
     signal; a full disk should not stop a teller's lookup from working.
     """
     started = time.monotonic()
-    result = _execute_replay(artifact, params, **kwargs)
+    try:
+        result = _execute_replay(artifact, params, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        # The three-way contract promises every run comes back as success,
+        # business_outcome or failure. An exception escaping breaks that
+        # promise for every caller at once -- the CLI prints a traceback, and
+        # the API returns a 500 with no evidence and no failure class.
+        #
+        # Observed: a dropdown value that was not one of the options. Playwright
+        # retried it 64 times over 30 seconds and then raised, straight through
+        # the engine and out of the HTTP handler. The browser also stayed open.
+        #
+        # An unexpected fault is still a FAILURE, not an absence of one.
+        # A value the target does not accept is INVALID_INPUT -- the caller's
+        # fault, fixable by them. Anything else is APP_ERROR: something the
+        # engine did not anticipate, which is ours.
+        is_bad_input = isinstance(exc, InvalidOptionError)
+        result = ReplayResult(
+            status=ReplayStatus.FAILURE,
+            failure=FailureDetail(
+                step_class=(FailureClass.INVALID_INPUT if is_bad_input
+                            else FailureClass.APP_ERROR),
+                step_id=None,
+                expected=("a value the target offers" if is_bad_input else
+                          "the replay engine completes and classifies its own outcome"),
+                observed=(str(exc) if is_bad_input else
+                          type(exc).__name__ + ": " + str(exc).split("\n")[0][:300]),
+            ),
+            run_dir=None,
+        )
     duration_ms = int((time.monotonic() - started) * 1000)
 
     if record_telemetry:
@@ -143,6 +172,11 @@ def _telemetry_record(artifact, result, duration_ms, source) -> ReplayRecord:
     )
 
 
+class InvalidOptionError(ValueError):
+    """A dropdown value the target does not offer. Carries the options it does,
+    because the fix is nearly always to use one of them."""
+
+
 def _select_option(locator, value):
     """Choose a dropdown option by underlying value, falling back to label.
 
@@ -154,10 +188,62 @@ def _select_option(locator, value):
     moment any money moved. Label remains the fallback for targets whose
     options carry no value attribute.
     """
+    # Short timeouts on both attempts. Playwright's default is 30 seconds and
+    # it retries dozens of times, so an option that simply does not exist costs
+    # a minute before anyone finds out -- and the eventual error says
+    # "did not find some options" without saying which were available.
+    # Enumerate FIRST, then decide. A short timeout on a slow shared host
+    # fires before the page settles, and reporting that as "no option matches"
+    # is a lie the caller cannot act on -- the first version of this printed
+    # 'No option matches name' while listing 'name' as available.
+    #
+    # If the option is genuinely there, wait properly for it. Only when it is
+    # absent is this the caller's mistake.
+    present = []
     try:
-        return locator.select_option(value=value)
+        for option in locator.locator("option").all():
+            present.append(((option.get_attribute("value") or "").strip(),
+                            (option.inner_text() or "").strip()))
     except Exception:
-        return locator.select_option(label=value)
+        present = []
+
+    by_value = any(v == value for v, _ in present)
+    by_label = any(l == value for _, l in present)
+
+    if by_value or not present:
+        try:
+            return locator.select_option(value=value, timeout=15000)
+        except Exception:
+            if by_value:
+                raise
+    if by_label:
+        return locator.select_option(label=value, timeout=15000)
+
+    if not present:
+        try:
+            return locator.select_option(label=value, timeout=15000)
+        except Exception:
+            pass
+
+    # Neither matched. Report what the caller COULD have chosen.
+    #
+    # Built from `present`, gathered above. The previous version re-enumerated
+    # here into a local called `value` -- which shadowed the function's own
+    # parameter, so the error reported the LAST OPTION's value instead of what
+    # the caller passed. It printed "No option matches 'name'" while listing
+    # 'name' as available, which is a message nobody can act on.
+    #
+    # Both the underlying value and the visible label are accepted, so both
+    # appear.
+    options = [
+        (v + " (" + l + ")") if v and l and v != l else (v or l)
+        for v, l in present if v or l
+    ]
+
+    raise InvalidOptionError(
+        "No option matches " + repr(value)
+        + (". Available: " + ", ".join(repr(o) for o in options if o) if options else "")
+    )
 
 
 def _resync_after_handback(page):
@@ -416,6 +502,8 @@ def _execute_replay(
     handoff_controller = None
     status_tracker = _StatusTracker()
     fault_armed = False
+    # Held so the fault handler below can name the step that was in flight.
+    step = None
 
     try:
         if owns_browser:
@@ -993,6 +1081,38 @@ def _execute_replay(
             page,
             policy,
         )
+    except Exception as exc:  # noqa: BLE001
+        # An unexpected fault, caught HERE rather than only in
+        # replay_artifact, because this is where `evidence` is in scope.
+        #
+        # The outer net stopped the exception reaching the HTTP handler as a
+        # 500 -- but the run still wrote no result.json, so the dashboard
+        # showed it as UNKNOWN with two events and nothing to explain it. A
+        # failure nobody can see is barely better than a crash.
+        #
+        # Routed through _finish so it gets the same treatment as any other
+        # outcome: a result file, a screenshot, and the page markup.
+        is_bad_input = isinstance(exc, InvalidOptionError)
+        return _finish(
+            evidence,
+            ReplayResult(
+                status=ReplayStatus.FAILURE,
+                failure=FailureDetail(
+                    step_class=(FailureClass.INVALID_INPUT if is_bad_input
+                                else FailureClass.APP_ERROR),
+                    step_id=(step.step_id if step is not None else None),
+                    expected=("a value the target offers" if is_bad_input else
+                              "the step completes"),
+                    observed=(str(exc) if is_bad_input else
+                              type(exc).__name__ + ": " + str(exc).split("\n")[0][:300]),
+                ),
+                step_telemetry=step_telemetry,
+                run_dir=str(run_dir),
+            ),
+            page,
+            policy,
+        )
+
     finally:
         # Disarm before letting go of the browser. This host is shared and
         # holds its settings in memory, so a forced fault left set would

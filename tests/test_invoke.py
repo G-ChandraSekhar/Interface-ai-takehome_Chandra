@@ -77,15 +77,16 @@ def test_altering_the_confirmation_invalidates_it():
 
     out = client.post("/capabilities/confirm",
                       json={"confirm_token": tampered}).json()
-    assert out["status"] == "invalid_confirmation"
-    assert "did not match" in out["note"]
+    # Same shape as /chat, so a caller need not know which endpoint it hit.
+    assert out["invocations"] == []
+    assert "did not match" in out["reply"]
 
 
 def test_a_confirmation_expires():
     stale = invoke.sign("open_sub_account", {"member_id": "4521"}, 1, int(time.time()) - 1)
     out = client.post("/capabilities/confirm", json={"confirm_token": stale}).json()
-    assert out["status"] == "invalid_confirmation"
-    assert "expired" in out["note"]
+    assert out["invocations"] == []
+    assert "expired" in out["reply"]
 
 
 def test_the_version_is_signed_too():
@@ -116,3 +117,139 @@ def test_an_irreversible_request_is_refused_by_the_engine_not_the_surface():
     # Only the mutating tier is intercepted; everything else goes to run().
     assert source.count("RiskTier.") == 1
     assert "RiskTier.MUTATING" in source
+
+
+# ---------------------------------------------------------------------------
+# The engine must never crash its caller
+# ---------------------------------------------------------------------------
+
+
+def test_an_unexpected_fault_is_a_failure_not_an_exception():
+    """The most serious bug of the build.
+
+    A dropdown value that was not one of the options made Playwright retry 64
+    times over 30 seconds and then raise -- straight up through the engine and
+    out of the HTTP handler as a 500, with no evidence, no failure class, and
+    the browser left open.
+
+    The three-way contract promises every run comes back as success,
+    business_outcome or failure. An exception escaping breaks that promise for
+    every caller at once. An unexpected fault is still a FAILURE, not an
+    absence of one.
+    """
+    import inspect
+
+    from src.replay import engine
+
+    source = inspect.getsource(engine.replay_artifact)
+    assert "try:" in source
+    assert "_execute_replay(artifact, params, **kwargs)" in source
+    assert "except Exception" in source
+    # ...and it comes back as a result, not a re-raise. Checked against code
+    # lines only -- the block's comment legitimately contains the word
+    # "raised", describing the bug this exists to prevent.
+    block = source.split("except Exception")[1].split("duration_ms")[0]
+    code = [l for l in block.splitlines() if not l.strip().startswith("#")]
+    assert not any(l.strip().startswith("raise") for l in code)
+    assert "result = ReplayResult(" in block
+
+
+def test_a_bad_dropdown_value_is_the_callers_fault_not_an_app_error():
+    """invalid_input, with the options they could have used -- the fix is
+    nearly always to pick one of them."""
+    import inspect
+
+    from src.replay import engine
+
+    assert issubclass(engine.InvalidOptionError, ValueError)
+
+    source = inspect.getsource(engine.replay_artifact)
+    assert "InvalidOptionError" in source
+    assert "FailureClass.INVALID_INPUT" in source
+
+    select = inspect.getsource(engine._select_option)
+    assert "Available: " in select, "the error must name what the target offers"
+    # Enumerate before deciding: an option that IS present gets a proper wait,
+    # and only a genuinely absent one is called the caller's mistake.
+    assert "by_value = any(" in select
+    # Compare against a CALL, not the function's own name -- "select_option"
+    # appears at index 5 in "def _select_option".
+    assert select.index("present = []") < select.index("locator.select_option(")
+
+
+def test_a_param_carries_an_example_of_a_valid_value():
+    """A caller typed "S0070" into a share field whose options read
+    "100234-S0070". The contract said the parameter was a string, which was
+    true and useless.
+
+    The example is a placeholder, never a default: a form that pre-fills a
+    member number is a form that runs against the wrong member the moment
+    someone stops reading.
+    """
+    from src.artifact.schema import ParamSpec
+
+    assert "example" in ParamSpec.model_fields
+    assert ParamSpec.model_fields["example"].default is None
+
+    import inspect
+    from src.artifact import distill
+
+    assert "example=str(value) if value else None" in inspect.getsource(distill.distill_run)
+
+
+def test_the_catalog_publishes_the_tier_before_anyone_invokes():
+    """So a caller knows whether it will run, ask, or be refused -- rather
+    than finding out after filling in five fields."""
+    from src.artifact.store import load_artifact_by_id
+    from src.capability_api.registry import artifact_to_tool_schema
+
+    schema = artifact_to_tool_schema(
+        load_artifact_by_id("open_sub_account", 1, ARTIFACTS)
+    )
+    assert schema["risk_tier"] == "mutating"
+
+
+def test_a_fault_is_recorded_in_the_run_that_hit_it():
+    """The outer net stopped the 500, but the run wrote no result.json -- the
+    dashboard showed UNKNOWN with two events and nothing to explain it. A
+    failure nobody can see is barely better than a crash.
+
+    Caught where `evidence` is in scope and routed through _finish, so it gets
+    a result file, a screenshot and the page markup like any other outcome.
+    """
+    import inspect
+
+    from src.replay import engine
+
+    source = inspect.getsource(engine._execute_replay)
+    handler = source.split("except Exception as exc:")[-1]
+    assert "return _finish(" in handler
+    assert "FailureClass.INVALID_INPUT" in handler
+
+
+
+def test_a_successful_confirmation_does_not_read_as_a_failure():
+    """The worst failure mode in this project, twice now.
+
+    confirm() returned the bare result while chat() returned
+    {reply, invocations, pending}. The dashboard read data.invocations[0],
+    found nothing, and told the person "that did not go through" about a phone
+    number that had just been changed successfully.
+
+    Same shape as the checkpoint_not_met bug: the system did the right thing
+    and reported the opposite. A caller should not have to know which endpoint
+    it called to read the answer.
+    """
+    import inspect
+
+    from src.capability_api import chat as chat_module
+    from src.capability_api import invoke
+
+    confirm_src = inspect.getsource(invoke.confirm)
+    assert '"reply"' in confirm_src and '"invocations"' in confirm_src
+    assert '"Done. "' in confirm_src
+
+    # Both surfaces hand back the same three keys.
+    for source in (confirm_src, inspect.getsource(chat_module.chat)):
+        for key in ('"reply"', '"invocations"', '"pending"'):
+            assert key in source

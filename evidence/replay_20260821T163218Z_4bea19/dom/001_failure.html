@@ -1,0 +1,68 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd"><html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<title>Funds Transfer - Meridian Core</title>
+<style type="text/css">
+  body { background-color:#c8c8c8; margin:0; }
+  body, td, th, font, input, select, textarea, button {
+    font-family: Verdana, Arial, sans-serif; font-size: 11px; color:#000000;
+  }
+  a { color:#0000aa; }
+  h1 { font-size:13px; margin:0; }
+  .fld { border:1px solid #7f9db9; background:#ffffff; padding:1px 2px; font-size:11px; }
+  .btn { font-size:11px; padding:1px 8px; }
+  .lbl { font-weight:bold; }
+  .err { color:#a00000; font-weight:bold; }
+  .ok  { color:#006600; font-weight:bold; }
+  .box { border:2px solid #003366; background:#eef2f7; }
+  .req:before { content:"* "; color:#a00000; }
+</style>
+</head>
+<body>
+<table width="760" border="0" cellpadding="0" cellspacing="0" align="center" style="margin-top:14px;background:#ffffff;border:1px solid #003366;">
+  <tbody><tr>
+    <td bgcolor="#003366" style="padding:6px 8px;">
+      <font face="Verdana" size="2" color="#ffffff"><b>MERIDIAN CORE</b></font>
+      <font face="Verdana" size="1" color="#a9c2e0">&nbsp;&nbsp;Member Services Platform &nbsp; v4.2.1</font>
+      <font face="Verdana" size="1" color="#a9c2e0" style="float:right;">Cornerstone Financial Systems™</font>
+    </td>
+  </tr>
+  <tr><td bgcolor="#5a7ca6" style="padding:2px 6px;">
+         <font face="Verdana" size="1" color="#ffffff">
+           <a href="/menu" style="color:#ffffff;text-decoration:none;"><b>Main Menu</b></a> &nbsp;·&nbsp;
+           <a href="/members" style="color:#ffffff;text-decoration:none;">Member Inquiry</a> &nbsp;·&nbsp;
+           <a href="/settings" style="color:#ffffff;text-decoration:none;">System Settings</a> &nbsp;·&nbsp;
+           <a href="/signoff" style="color:#ffffff;text-decoration:none;">Sign Off</a>
+         </font>
+       </td></tr>
+  <tr><td style="padding:12px 14px;"><h1>FUNDS TRANSFER</h1>
+       <font size="1" color="#555555">Member 100234 - Lovelace, Ada</font><br><br>
+       <form method="post" action="/members/100234/transfer/review">
+         <input type="hidden" name="_token" value="c4c86469-e88" style="">
+         <table border="0" cellpadding="3" cellspacing="0" class="box" style="padding:10px;">
+           <tbody><tr><td class="lbl req" align="right">From Share:</td>
+               <td><select class="fld" name="from"><option value="100234-S0001">100234-S0001 - Regular Shares ($1,499.00)</option><option value="100234-S0070">100234-S0070 - Share Draft (Checking) ($13.04)</option><option value="100234-S0001-3">100234-S0001-3 - Regular Shares ($2,070.51)</option><option value="100234-MMKT-4">100234-MMKT-4 - Money Market ($52.00)</option><option value="100234-MMKT-5">100234-MMKT-5 - Money Market ($168.00)</option><option value="100234-S0001-6">100234-S0001-6 - Regular Shares ($22.00)</option><option value="100234-S0001-7">100234-S0001-7 - Regular Shares ($20.00)</option><option value="100234-S0001-8">100234-S0001-8 - Regular Shares ($7.00)</option><option value="100234-S0001-9">100234-S0001-9 - Regular Shares ($5.00)</option><option value="100234-MMKT-10">100234-MMKT-10 - Money Market ($2,954.00)</option><option value="100234-S0001-11">100234-S0001-11 - Regular Shares ($45.00)</option><option value="100234-S0001-12">100234-S0001-12 - Regular Shares ($5.00)</option><option value="100234-MMKT-13">100234-MMKT-13 - Money Market ($15.00)</option><option value="100234-MMKT-14">100234-MMKT-14 - Money Market ($10.00)</option><option value="100234-MMKT-15">100234-MMKT-15 - Money Market ($10.00)</option><option value="100234-S0001-16">100234-S0001-16 - Regular Shares ($5.00)</option><option value="100234-S0001-17">100234-S0001-17 - Regular Shares ($5.00)</option><option value="100234-S0001-18">100234-S0001-18 - Regular Shares ($5.00)</option><option value="100234-S0001-19">100234-S0001-19 - Regular Shares ($5.00)</option><option value="100234-S0001-20">100234-S0001-20 - Regular Shares ($5.00)</option><option value="100234-S0001-21">100234-S0001-21 - Regular Shares ($5.00)</option><option value="100234-S0001-22">100234-S0001-22 - Regular Shares ($5.00)</option></select></td></tr>
+           <tr><td class="lbl req" align="right">To Share:</td>
+               <td><select class="fld" name="to"><option value="100234-S0001">100234-S0001 - Regular Shares ($1,499.00)</option><option value="100234-S0070">100234-S0070 - Share Draft (Checking) ($13.04)</option><option value="100234-S0001-3">100234-S0001-3 - Regular Shares ($2,070.51)</option><option value="100234-MMKT-4">100234-MMKT-4 - Money Market ($52.00)</option><option value="100234-MMKT-5">100234-MMKT-5 - Money Market ($168.00)</option><option value="100234-S0001-6">100234-S0001-6 - Regular Shares ($22.00)</option><option value="100234-S0001-7">100234-S0001-7 - Regular Shares ($20.00)</option><option value="100234-S0001-8">100234-S0001-8 - Regular Shares ($7.00)</option><option value="100234-S0001-9">100234-S0001-9 - Regular Shares ($5.00)</option><option value="100234-MMKT-10">100234-MMKT-10 - Money Market ($2,954.00)</option><option value="100234-S0001-11">100234-S0001-11 - Regular Shares ($45.00)</option><option value="100234-S0001-12">100234-S0001-12 - Regular Shares ($5.00)</option><option value="100234-MMKT-13">100234-MMKT-13 - Money Market ($15.00)</option><option value="100234-MMKT-14">100234-MMKT-14 - Money Market ($10.00)</option><option value="100234-MMKT-15">100234-MMKT-15 - Money Market ($10.00)</option><option value="100234-S0001-16">100234-S0001-16 - Regular Shares ($5.00)</option><option value="100234-S0001-17">100234-S0001-17 - Regular Shares ($5.00)</option><option value="100234-S0001-18">100234-S0001-18 - Regular Shares ($5.00)</option><option value="100234-S0001-19">100234-S0001-19 - Regular Shares ($5.00)</option><option value="100234-S0001-20">100234-S0001-20 - Regular Shares ($5.00)</option><option value="100234-S0001-21">100234-S0001-21 - Regular Shares ($5.00)</option><option value="100234-S0001-22">100234-S0001-22 - Regular Shares ($5.00)</option></select></td></tr>
+           <tr><td class="lbl req" align="right">Amount:</td>
+               <td>$<input class="fld" type="text" name="amount" size="14" style=""></td></tr>
+           <tr><td class="lbl" align="right">Memo:</td>
+               <td><input class="fld" type="text" name="memo" size="40" maxlength="60" style=""></td></tr>
+           <tr><td></td><td><br><input class="btn" type="submit" value="Continue" style="">
+               &nbsp;<a href="/members/100234">Cancel</a></td></tr>
+         </tbody></table>
+       </form></td></tr>
+  <tr>
+    <td bgcolor="#e4e4e4" style="border-top:1px solid #999999;padding:3px 8px;">
+      <font face="Verdana" size="1" color="#333333">OPR TELLER1 &nbsp;|&nbsp; BR MAIN-001 &nbsp;|&nbsp; 08/21/2026 16:32:20 &nbsp;|&nbsp; SID 163849DF</font>
+    </td>
+  </tr>
+  <tr>
+    <td bgcolor="#003366" style="padding:3px 8px;">
+      <font face="Verdana" size="1" color="#c9d8ea">
+        <b>F3</b>=Sign Off &nbsp; <b>F5</b>=Main Menu &nbsp; <b>F7</b>=Member Inquiry &nbsp; <b>F12</b>=Cancel
+      </font>
+    </td>
+  </tr>
+</tbody></table>
+
+</body></html>

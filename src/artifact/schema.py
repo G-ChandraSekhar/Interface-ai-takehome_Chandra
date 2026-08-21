@@ -62,6 +62,25 @@ class ParamSpec(BaseModel):
     required: bool = True
     description: str = ""
 
+    # What a valid value looks like, taken from the run this was recorded
+    # from. Shown as a placeholder, never pre-filled: a form that pre-fills a
+    # member number is a form that runs against the wrong member the moment
+    # someone stops reading.
+    #
+    # Exists because a caller typed "S0070" into a share field whose options
+    # read "100234-S0070". The contract said the parameter was a string, which
+    # was true and useless.
+    example: Optional[str] = None
+
+    # The exact set of values the target accepts, for a parameter bound to a
+    # dropdown. Published in the tool schema, where a model API ENFORCES it
+    # rather than suggesting it.
+    #
+    # An example was not enough. `search_by` carried `example: "name"` and the
+    # model still sent "last_name" -- a reasonable paraphrase of the visible
+    # label "Last Name", and wrong. A hint invites interpretation; a closed set
+    # does not.
+    enum: Optional[list] = None
 
 class TargetSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")

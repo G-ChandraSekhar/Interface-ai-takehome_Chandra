@@ -312,6 +312,7 @@ def distill_run(
     version: int = 1,
     optional_params: list[str] | None = None,
     description: str | None = None,
+    enums: dict | None = None,
 ) -> Artifact:
     events = _read_events(log_path)
     if not events:
@@ -385,8 +386,13 @@ def distill_run(
             "Marked optional but not an input param: " + ", ".join(sorted(unknown))
         )
     input_params = {
-        name: ParamSpec(type="str", required=name not in optional)
-        for name in params
+        name: ParamSpec(
+            type="str",
+            required=name not in optional,
+            example=str(value) if value else None,
+            enum=(enums or {}).get(name),
+        )
+        for name, value in params.items()
     }
 
     # Build the extraction rule for each required output from the label

@@ -1,0 +1,73 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd"><html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=iso-8859-1">
+<title>Member Inquiry - Meridian Core</title>
+<style type="text/css">
+  body { background-color:#c8c8c8; margin:0; }
+  body, td, th, font, input, select, textarea, button {
+    font-family: Verdana, Arial, sans-serif; font-size: 11px; color:#000000;
+  }
+  a { color:#0000aa; }
+  h1 { font-size:13px; margin:0; }
+  .fld { border:1px solid #7f9db9; background:#ffffff; padding:1px 2px; font-size:11px; }
+  .btn { font-size:11px; padding:1px 8px; }
+  .lbl { font-weight:bold; }
+  .err { color:#a00000; font-weight:bold; }
+  .ok  { color:#006600; font-weight:bold; }
+  .box { border:2px solid #003366; background:#eef2f7; }
+  .req:before { content:"* "; color:#a00000; }
+</style>
+</head>
+<body>
+<table width="760" border="0" cellpadding="0" cellspacing="0" align="center" style="margin-top:14px;background:#ffffff;border:1px solid #003366;">
+  <tbody><tr>
+    <td bgcolor="#003366" style="padding:6px 8px;">
+      <font face="Verdana" size="2" color="#ffffff"><b>MERIDIAN CORE</b></font>
+      <font face="Verdana" size="1" color="#a9c2e0">&nbsp;&nbsp;Member Services Platform &nbsp; v4.2.1</font>
+      <font face="Verdana" size="1" color="#a9c2e0" style="float:right;">Cornerstone Financial Systems™</font>
+    </td>
+  </tr>
+  <tr><td bgcolor="#5a7ca6" style="padding:2px 6px;">
+         <font face="Verdana" size="1" color="#ffffff">
+           <a href="/menu" style="color:#ffffff;text-decoration:none;"><b>Main Menu</b></a> &nbsp;·&nbsp;
+           <a href="/members" style="color:#ffffff;text-decoration:none;">Member Inquiry</a> &nbsp;·&nbsp;
+           <a href="/settings" style="color:#ffffff;text-decoration:none;">System Settings</a> &nbsp;·&nbsp;
+           <a href="/signoff" style="color:#ffffff;text-decoration:none;">Sign Off</a>
+         </font>
+       </td></tr>
+  <tr><td style="padding:12px 14px;"><h1>MEMBER INQUIRY / SELECTION</h1><br>
+       <form method="get" action="/members">
+         
+         <table border="0" cellpadding="3" cellspacing="0" class="box" style="padding:10px;">
+           <tbody><tr>
+             <td class="lbl" align="right">Search by:</td>
+             <td>
+               <select class="fld" name="by">
+                 <option value="number" selected="">Member Number</option>
+                 <option value="name">Last Name</option>
+               </select>
+             </td>
+           </tr>
+           <tr>
+             <td class="lbl" align="right">Value:</td>
+             <td><input class="fld" type="text" name="q" size="28" value="" style=""> &nbsp;
+                 <input class="btn" type="submit" value="Search" style=""></td>
+           </tr>
+         </tbody></table>
+       </form>
+       
+       <br><font size="1" color="#555555">Try member numbers 100234, 100987, 101555, 102777, 103001.</font></td></tr>
+  <tr>
+    <td bgcolor="#e4e4e4" style="border-top:1px solid #999999;padding:3px 8px;">
+      <font face="Verdana" size="1" color="#333333">OPR TELLER1 &nbsp;|&nbsp; BR MAIN-001 &nbsp;|&nbsp; 08/21/2026 17:01:54 &nbsp;|&nbsp; SID 4E2DA8F5</font>
+    </td>
+  </tr>
+  <tr>
+    <td bgcolor="#003366" style="padding:3px 8px;">
+      <font face="Verdana" size="1" color="#c9d8ea">
+        <b>F3</b>=Sign Off &nbsp; <b>F5</b>=Main Menu &nbsp; <b>F7</b>=Member Inquiry &nbsp; <b>F12</b>=Cancel
+      </font>
+    </td>
+  </tr>
+</tbody></table>
+
+</body></html>

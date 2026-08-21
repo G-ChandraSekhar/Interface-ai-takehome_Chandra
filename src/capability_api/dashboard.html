@@ -651,9 +651,9 @@
   .ir-msg { font-size:12.5px; line-height:1.55; color:var(--muted);
             margin:0 0 8px; }
 
-  /* A button inherits the browser's own text colour and font. Making the
-     capability rows clickable silently dropped them out of the app's
-     palette -- they went grey on navy and became unreadable. */
+  /* A <button> inherits the browser's own colour and font. Making these rows
+     clickable silently dropped them out of the palette -- grey on navy, and
+     unreadable. */
   .cap { display:block; width:100%; text-align:left; background:none;
          border:none; cursor:pointer;
          color:inherit; font:inherit; }
@@ -661,6 +661,17 @@
   .cap.active { background:linear-gradient(90deg,
                 color-mix(in oklab, var(--recovered) 12%, transparent) 0%,
                 transparent 62%); }
+
+  .tier-note {
+    margin:0 0 16px; padding:12px 15px; border-radius:8px;
+    background:color-mix(in oklab, var(--human) 8%, var(--surface));
+    border:1px solid color-mix(in oklab, var(--human) 25%, transparent);
+    border-left:2.5px solid var(--human);
+    font-size:12.5px; line-height:1.6; color:var(--muted);
+  }
+  .tier-note b { display:block; color:var(--human); font-size:12.5px;
+                 margin-bottom:3px; font-weight:600; }
+  .tier-note code { font-family:var(--mono); font-size:11.5px; color:var(--paper); }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -984,6 +995,19 @@ function Invoke({ cap }) {
           <span>Invoke</span><span>same engine as the CLI</span>
         </div>
 
+        {/* Say what the tier does BEFORE the person fills the form, not after
+            it refuses. An irreversible capability cannot complete here at all
+            -- a form is not a person at the live session -- and finding that
+            out after typing five fields is a poor way to learn it. */}
+        {cap.risk_tier === 'irreversible' && (
+          <div className="tier-note">
+            <b>Needs a human at the operator console.</b>
+            You can run it from here to see the guardrail refuse it, with an
+            evidence bundle. To actually complete it, use the CLI with
+            <code> --handoff</code> and take control of the live session.
+          </div>
+        )}
+
         {Object.entries(props).map(([name, spec]) => {
           const req = required.includes(name);
           return (
@@ -994,7 +1018,11 @@ function Invoke({ cap }) {
               </span>
               <input
                 value={values[name] || ''}
-                placeholder={req ? spec.description || name : 'leave blank to keep the current value'}
+                placeholder={
+                  spec.example
+                    ? 'e.g. ' + spec.example + (req ? '' : '   — optional')
+                    : (req ? spec.description || name : 'optional')
+                }
                 onChange={e => setValues(v => ({ ...v, [name]: e.target.value }))}
                 disabled={busy}
               />
@@ -1099,7 +1127,17 @@ function Chat() {
         body: JSON.stringify({ confirm_token: token }),
       });
       const data = await res.json();
-      setLog(h => [...h, { role: 'assistant', content: data.reply, invocations: data.invocations }]);
+      // confirm() returns a result, not prose. Say what happened rather than
+      // appending an empty turn -- which left the person looking at a blank
+      // reply with no sign the change had gone through.
+      const inv = (data.invocations || [])[0] || {};
+      const said = data.reply && data.reply.trim()
+        ? data.reply
+        : (inv.status === 'success'
+            ? 'Done. ' + Object.entries(inv.outputs || {})
+                .map(([k, v]) => k + ' is now ' + v).join(', ')
+            : 'That did not go through: ' + (inv.observed || inv.status || 'unknown'));
+      setLog(h => [...h, { role: 'assistant', content: said, invocations: data.invocations }]);
     } catch (e) {
       setLog(h => [...h, { role: 'assistant', content: 'The confirmation failed: ' + e.message }]);
     }
@@ -1118,7 +1156,13 @@ function Chat() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: history.map(m => ({ role: m.role, content: m.content })),
+          // Only turns with real text. A turn whose content is null -- which
+          // happens when a reply carried an invocation but no prose -- is
+          // rejected by the model API as "expected a string, got null", and it
+          // poisons every later message in the conversation.
+          messages: history
+            .filter(m => typeof m.content === 'string' && m.content.trim())
+            .map(m => ({ role: m.role, content: m.content })),
         }),
       });
       const data = await res.json();

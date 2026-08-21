@@ -1,0 +1,27 @@
+{
+  "status": "business_outcome",
+  "outcome_code": "MEMBER_NOT_FOUND",
+  "outcome_message": "No member record matched the search criteria.",
+  "outputs": {},
+  "failure": null,
+  "step_telemetry": [
+    {
+      "step_id": "s1",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s2",
+      "resolved_tier": 1,
+      "resolved_strategy": "label_proximity",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s3",
+      "resolved_tier": 1,
+      "resolved_strategy": "css_name_attr",
+      "recovery_applied": false
+    }
+  ]
+}

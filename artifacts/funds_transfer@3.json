@@ -13,39 +13,46 @@
     "member_id": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "100234"
     },
     "from_share": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "100234-S0001-3"
     },
     "to_share": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "100234-S0070"
     },
     "amount": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "1.00"
     },
     "memo": {
       "type": "str",
       "required": false,
-      "description": ""
+      "description": "",
+      "example": "demo transfer"
     }
   },
   "output_schema": {
-    "confirmation": {
-      "type": "str",
-      "required": true,
-      "description": ""
-    },
     "amount": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": null
+    },
+    "confirmation": {
+      "type": "str",
+      "required": true,
+      "description": "",
+      "example": null
     }
   },
   "steps": [
@@ -277,21 +284,21 @@
     }
   ],
   "checkpoint": {
-    "description": "All required outputs (confirmation, amount) are visible on this page.",
+    "description": "All required outputs (amount, confirmation) are visible on this page.",
     "url_pattern": "/members/{member_id}/transfer/post",
     "assertions": []
   },
   "output_extraction": {
-    "confirmation": {
+    "amount": {
       "strategy": "table_row_label",
-      "label": "Confirmation",
+      "label": "Amount",
       "key_column": null,
       "key_input_ref": null,
       "key_literal": null
     },
-    "amount": {
+    "confirmation": {
       "strategy": "table_row_label",
-      "label": "Amount",
+      "label": "Confirmation",
       "key_column": null,
       "key_input_ref": null,
       "key_literal": null

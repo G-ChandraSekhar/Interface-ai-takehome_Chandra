@@ -1,0 +1,5 @@
+{"ts": "2026-08-21T16:48:37.589486+00:00", "event": "replay_started", "artifact_id": "check_member_balance", "version": 2, "params": {"member_id": "999999", "share_id": "999999-S0001"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-21T16:48:38.170083+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-21T16:48:38.328696+00:00", "event": "business_outcome", "code": "MEMBER_NOT_FOUND", "step_id": "s3"}
+{"ts": "2026-08-21T16:48:38.378695+00:00", "event": "dom_snapshot", "label": "business_outcome", "path": "dom/001_business_outcome.html", "bytes": 3582}
+{"ts": "2026-08-21T16:48:38.378903+00:00", "event": "replay_finished", "status": "business_outcome"}

@@ -36,6 +36,13 @@ def discover_artifacts(artifacts_dir):
     return artifacts
 
 
+def _risk_tier_of(artifact) -> str:
+    """The riskiest thing this capability does, per the policy engine."""
+    from src.capability_api.invoke import highest_tier
+
+    return highest_tier(artifact).value
+
+
 def artifact_to_tool_schema(artifact):
     """Converts an artifact into an OpenAI-style function tool schema, plus
     a few catalog-specific fields (artifact_id, version, output_schema) an
@@ -45,6 +52,10 @@ def artifact_to_tool_schema(artifact):
         name: {
             "type": _TYPE_MAP.get(spec.type, "string"),
             "description": spec.description or name,
+            **({"example": spec.example} if spec.example else {}),
+            # A closed set, not a suggestion. The model API rejects anything
+            # outside it, which an example cannot do.
+            **({"enum": spec.enum} if spec.enum else {}),
         }
         for name, spec in artifact.input_params.items()
     }
@@ -68,6 +79,15 @@ def artifact_to_tool_schema(artifact):
                 "required": required,
             },
         },
+        # What tier this capability sits in, so a caller knows before invoking
+        # whether it will run, ask for confirmation, or be refused. Computed by
+        # the same policy engine replay uses -- never a second opinion.
+        "risk_tier": _risk_tier_of(artifact),
+
+        # The values this capability was recorded with, as examples. Not
+        # defaults: nothing is pre-filled, because a form that pre-fills a
+        # member number is a form that runs against the wrong member when
+        # someone stops reading. They are shown as placeholders only.
         "artifact_id": artifact.artifact_id,
         "version": artifact.version,
         "approved": artifact.approved,

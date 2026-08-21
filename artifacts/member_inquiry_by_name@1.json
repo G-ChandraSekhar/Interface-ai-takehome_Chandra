@@ -3,6 +3,7 @@
   "name": "Member inquiry by last name",
   "version": 1,
   "goal": "Using Member Inquiry, explicitly set the 'Search by' dropdown to Last Name even though another value already appears selected, then type Hopper as the search value and search. Open the matching member's record. From the member record page, report the member's full name and the mailing address shown there.",
+  "description": null,
   "target": {
     "tenant": "meridian",
     "base_url": "https://web-sample.interface-hiring.com",
@@ -12,24 +13,35 @@
     "query": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "Hopper",
+      "enum": null
     },
     "search_by": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "name",
+      "enum": [
+        "number",
+        "name"
+      ]
     }
   },
   "output_schema": {
-    "member_name": {
-      "type": "str",
-      "required": true,
-      "description": ""
-    },
     "address": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": null,
+      "enum": null
+    },
+    "member_name": {
+      "type": "str",
+      "required": true,
+      "description": "",
+      "example": null,
+      "enum": null
     }
   },
   "steps": [
@@ -135,7 +147,7 @@
     }
   ],
   "checkpoint": {
-    "description": "All required outputs (member_name, address) are visible on this page.",
+    "description": "All required outputs (address, member_name) are visible on this page.",
     "url_pattern": "/members/{*}",
     "assertions": [
       {
@@ -150,16 +162,16 @@
     ]
   },
   "output_extraction": {
-    "member_name": {
+    "address": {
       "strategy": "table_row_label",
-      "label": "Name",
+      "label": "Address",
       "key_column": null,
       "key_input_ref": null,
       "key_literal": null
     },
-    "address": {
+    "member_name": {
       "strategy": "table_row_label",
-      "label": "Address",
+      "label": "Name",
       "key_column": null,
       "key_input_ref": null,
       "key_literal": null

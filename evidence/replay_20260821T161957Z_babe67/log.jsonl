@@ -1,0 +1,2 @@
+{"ts": "2026-08-21T16:19:57.578526+00:00", "event": "replay_started", "artifact_id": "member_inquiry_by_name", "version": 1, "params": {"query": "lovelace", "search_by": "last_name"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-21T16:19:58.274774+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}

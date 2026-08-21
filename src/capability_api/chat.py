@@ -363,6 +363,16 @@ def chat(
     choice = first.choices[0].message
     conversation.append(choice.model_dump(exclude_none=True))
 
+    # Belt and braces on the server side too. The UI now filters null-content
+    # turns before sending, but any caller can post a history containing one,
+    # and the model API rejects the whole request rather than that message --
+    # so one malformed turn breaks every subsequent message in a conversation.
+    conversation = [
+        m for m in conversation
+        if not (isinstance(m, dict) and m.get("role") in ("user", "assistant")
+                and m.get("content") is None and not m.get("tool_calls"))
+    ]
+
     if not choice.tool_calls:
         # tool_choice="required" should prevent this. If a model returns prose
         # anyway, it is not passed through -- an unscoped answer is exactly

@@ -1,0 +1,57 @@
+{
+  "status": "business_outcome",
+  "outcome_code": "TRANSACTION_REJECTED",
+  "outcome_message": "The host rejected the request (for example insufficient available balance, a source share on hold, or a deposit below the minimum for the selected share type).",
+  "outputs": {},
+  "failure": null,
+  "step_telemetry": [
+    {
+      "step_id": "s1",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s2",
+      "resolved_tier": 1,
+      "resolved_strategy": "css_name_attr",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s3",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s4",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s5",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s6",
+      "resolved_tier": 1,
+      "resolved_strategy": "label_proximity",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s7",
+      "resolved_tier": 1,
+      "resolved_strategy": "label_proximity",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s8",
+      "resolved_tier": 1,
+      "resolved_strategy": "label_proximity",
+      "recovery_applied": false
+    }
+  ]
+}

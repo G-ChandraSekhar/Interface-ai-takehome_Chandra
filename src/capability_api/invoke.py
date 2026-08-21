@@ -265,6 +265,26 @@ def confirm(token: str, artifacts_dir: Optional[Path] = None) -> dict:
 
     capability, params, version, problem = verify_token(token)
     if problem:
-        return {"status": "invalid_confirmation", "note": problem}
+        return {"reply": problem, "invocations": [], "pending": None}
 
-    return run(capability, params, artifacts_dir, version=version, confirmed=True)
+    outcome = run(capability, params, artifacts_dir, version=version, confirmed=True)
+
+    # Same shape as chat(): {reply, invocations, pending}. Returning the bare
+    # result made every surface guess at it -- the dashboard read
+    # data.invocations[0].status, found nothing, and told the person "that did
+    # not go through" about a run that had just succeeded. A caller should not
+    # have to know which endpoint it called to read the answer.
+    if outcome.get("status") == "success":
+        changed = ", ".join(
+            str(k) + " is now " + str(v)
+            for k, v in (outcome.get("outputs") or {}).items()
+        )
+        reply = "Done. " + (changed or "The record was updated.")
+    elif outcome.get("status") == "business_outcome":
+        reply = outcome.get("message") or "The host declined that."
+    else:
+        reply = "That did not go through: " + str(
+            outcome.get("observed") or outcome.get("status") or "unknown"
+        )
+
+    return {"reply": reply, "invocations": [outcome], "pending": None}

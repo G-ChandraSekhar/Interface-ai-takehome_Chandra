@@ -13,44 +13,52 @@
     "member_id": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "100987"
     },
     "email": {
       "type": "str",
       "required": false,
-      "description": ""
+      "description": "",
+      "example": "alan.turing@bletchley.example"
     },
     "phone": {
       "type": "str",
       "required": false,
-      "description": ""
+      "description": "",
+      "example": "555-0142"
     },
     "address": {
       "type": "str",
       "required": false,
-      "description": ""
+      "description": "",
+      "example": "3 Sackville Street, Manchester"
     }
   },
   "output_schema": {
-    "member_name": {
+    "address": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": null
     },
     "email": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": null
+    },
+    "member_name": {
+      "type": "str",
+      "required": true,
+      "description": "",
+      "example": null
     },
     "phone": {
       "type": "str",
       "required": true,
-      "description": ""
-    },
-    "address": {
-      "type": "str",
-      "required": true,
-      "description": ""
+      "description": "",
+      "example": null
     }
   },
   "steps": [
@@ -261,14 +269,14 @@
     }
   ],
   "checkpoint": {
-    "description": "All required outputs (member_name, email, phone, address) are visible on this page.",
+    "description": "All required outputs (address, email, member_name, phone) are visible on this page.",
     "url_pattern": "/members/{member_id}",
     "assertions": []
   },
   "output_extraction": {
-    "member_name": {
+    "address": {
       "strategy": "table_row_label",
-      "label": "Name",
+      "label": "Address",
       "key_column": null,
       "key_input_ref": null,
       "key_literal": null
@@ -280,16 +288,16 @@
       "key_input_ref": null,
       "key_literal": null
     },
-    "phone": {
+    "member_name": {
       "strategy": "table_row_label",
-      "label": "Phone",
+      "label": "Name",
       "key_column": null,
       "key_input_ref": null,
       "key_literal": null
     },
-    "address": {
+    "phone": {
       "strategy": "table_row_label",
-      "label": "Address",
+      "label": "Phone",
       "key_column": null,
       "key_input_ref": null,
       "key_literal": null

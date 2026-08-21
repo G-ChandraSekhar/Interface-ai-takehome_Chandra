@@ -3,6 +3,7 @@
   "name": "Open new share",
   "version": 1,
   "goal": "Using Member Inquiry, search for member number 101555, open their record, then go to Open New Share. Open a new Money Market share with an initial deposit of 25.00. Continue to the review screen and post it. From the page shown after posting, report the confirmation number and the share type that was opened.",
+  "description": null,
   "target": {
     "tenant": "meridian",
     "base_url": "https://web-sample.interface-hiring.com",
@@ -12,29 +13,34 @@
     "member_id": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "101555"
     },
     "share_type": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "MMKT"
     },
     "deposit": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": "25.00"
     }
   },
   "output_schema": {
     "confirmation": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": null
     },
     "share_type": {
       "type": "str",
       "required": true,
-      "description": ""
+      "description": "",
+      "example": null
     }
   },
   "steps": [
@@ -225,7 +231,8 @@
   ],
   "checkpoint": {
     "description": "All required outputs (confirmation, share_type) are visible on this page.",
-    "url_pattern": "/members/{member_id}/open-share/post"
+    "url_pattern": "/members/{member_id}/open-share/post",
+    "assertions": []
   },
   "output_extraction": {
     "confirmation": {
@@ -333,7 +340,7 @@
     ]
   },
   "stability": null,
-  "created_from_run_id": "20260820T191506Z_0f8713",
-  "created_at": "2026-08-20T19:15:06.908833Z",
+  "created_from_run_id": "20260820T192149Z_0b26c5",
+  "created_at": "2026-08-20T19:21:49.539000Z",
   "approved": false
 }

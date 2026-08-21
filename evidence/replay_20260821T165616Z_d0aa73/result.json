@@ -1,0 +1,20 @@
+{
+  "status": "failure",
+  "outcome_code": null,
+  "outcome_message": null,
+  "outputs": {},
+  "failure": {
+    "class": "invalid_input",
+    "step_id": "s2",
+    "expected": "a value the target offers",
+    "observed": "No option matches 'name'. Available: 'number (Member Number)', 'name (Last Name)'"
+  },
+  "step_telemetry": [
+    {
+      "step_id": "s1",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    }
+  ]
+}

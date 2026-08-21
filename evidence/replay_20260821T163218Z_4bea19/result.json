@@ -1,0 +1,44 @@
+{
+  "status": "failure",
+  "outcome_code": null,
+  "outcome_message": null,
+  "outputs": {},
+  "failure": {
+    "class": "invalid_input",
+    "step_id": "s6",
+    "expected": "a value the target offers",
+    "observed": "No option matches 'S0070'. Available: '100234-S0001 - Regular Shares ($1,499.00)', '100234-S0070 - Share Draft (Checking) ($13.04)', '100234-S0001-3 - Regular Shares ($2,070.51)', '100234-MMKT-4 - Money Market ($52.00)', '100234-MMKT-5 - Money Market ($168.00)', '100234-S0001-6 - Regular Shares ($22.00)', '100234-S0001-7 - Regular Shares ($20.00)', '100234-S0001-8 - Regular Shares ($7.00)', '100234-S0001-9 - Regular Shares ($5.00)', '100234-MMKT-10 - Money Market ($2,954.00)', '100234-S0001-11 - Regular Shares ($45.00)', '100234-S0001-12 - Regular Shares ($5.00)', '100234-MMKT-13 - Money Market ($15.00)', '100234-MMKT-14 - Money Market ($10.00)', '100234-MMKT-15 - Money Market ($10.00)', '100234-S0001-16 - Regular Shares ($5.00)', '100234-S0001-17 - Regular Shares ($5.00)', '100234-S0001-18 - Regular Shares ($5.00)', '100234-S0001-19 - Regular Shares ($5.00)', '100234-S0001-20 - Regular Shares ($5.00)', '100234-S0001-21 - Regular Shares ($5.00)', '100234-S0001-22 - Regular Shares ($5.00)'"
+  },
+  "step_telemetry": [
+    {
+      "step_id": "s1",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s2",
+      "resolved_tier": 1,
+      "resolved_strategy": "css_name_attr",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s3",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s4",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    },
+    {
+      "step_id": "s5",
+      "resolved_tier": 1,
+      "resolved_strategy": "role_name",
+      "recovery_applied": false
+    }
+  ]
+}

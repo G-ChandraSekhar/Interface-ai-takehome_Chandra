@@ -108,6 +108,10 @@ def cmd_distill(args):
             version=args.version,
             optional_params=args.optional,
             description=args.description,
+            enums={
+                k: v.split(",")
+                for k, v in (e.split("=", 1) for e in (args.enum or []))
+            },
         )
     except DistillationError as e:
         print(f"Distillation failed: {e}")
@@ -334,6 +338,12 @@ def main():
              "--name. Never the discovery goal: that names the member the "
              "recording used and carries instructions aimed at the model "
              "doing the recording, not at anyone calling the result.",
+    )
+    p_distill.add_argument(
+        "--enum", action="append", metavar="NAME=a,b,c",
+        help="the exact values a dropdown parameter accepts. Published in the "
+             "tool schema, where a model API enforces it -- an example alone "
+             "is a hint the model may paraphrase. Repeatable.",
     )
     p_distill.add_argument(
         "--optional", action="append", metavar="NAME",

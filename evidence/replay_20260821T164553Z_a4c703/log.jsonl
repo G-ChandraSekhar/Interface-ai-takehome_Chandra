@@ -1,0 +1,2 @@
+{"ts": "2026-08-21T16:45:53.998634+00:00", "event": "replay_started", "artifact_id": "lookup_member_savings_balance", "version": 1, "params": {"member_id": "4521"}, "target": "a", "base_url": "https://evil.example.com"}
+{"ts": "2026-08-21T16:45:53.998716+00:00", "event": "replay_denied", "reason": "Origin 'https://evil.example.com' is not in the configured allowlist."}
