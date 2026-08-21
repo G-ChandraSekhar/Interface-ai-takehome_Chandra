@@ -54,7 +54,14 @@ def artifact_to_tool_schema(artifact):
         "type": "function",
         "function": {
             "name": artifact.artifact_id,
-            "description": artifact.goal,
+            # NEVER artifact.goal. The goal is the instruction given to the
+            # model at recording time -- it names the member the recording
+            # used, the values it set, and instructions like "set all three
+            # fields even if a value already appears". Published as a tool
+            # description, a model reads it as guidance for the CALLER and
+            # obeys it: asked to change a phone number, it demanded an e-mail
+            # and an address the schema said were optional.
+            "description": artifact.description or artifact.name,
             "parameters": {
                 "type": "object",
                 "properties": properties,

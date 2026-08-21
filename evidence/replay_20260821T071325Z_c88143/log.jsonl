@@ -1,0 +1,5 @@
+{"ts": "2026-08-21T07:13:25.286146+00:00", "event": "replay_started", "artifact_id": "funds_transfer", "version": 2, "params": {"member_id": "100234", "from_share": "100234-S0070", "to_share": "100234-S0001-3", "amount": "50.00", "memo": ""}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-21T07:13:26.393551+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-21T07:13:26.959735+00:00", "event": "business_outcome", "code": "TRANSACTION_REJECTED", "step_id": "s10"}
+{"ts": "2026-08-21T07:13:27.015340+00:00", "event": "dom_snapshot", "label": "business_outcome", "path": "dom/001_business_outcome.html", "bytes": 2865}
+{"ts": "2026-08-21T07:13:27.015579+00:00", "event": "replay_finished", "status": "business_outcome"}

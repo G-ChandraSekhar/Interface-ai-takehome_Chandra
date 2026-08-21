@@ -310,6 +310,8 @@ def distill_run(
     params: dict[str, str],
     required_outputs: list[str],
     version: int = 1,
+    optional_params: list[str] | None = None,
+    description: str | None = None,
 ) -> Artifact:
     events = _read_events(log_path)
     if not events:
@@ -367,7 +369,25 @@ def distill_run(
         )
 
     output_schema = {name: ParamSpec(type="str", required=True) for name in required_outputs}
-    input_params = {name: ParamSpec(type="str", required=True) for name in params}
+    # A parameter marked optional means "leave that field as it is": replay
+    # skips the step that would fill it rather than typing an empty value and
+    # blanking whatever the member had.
+    #
+    # Without it, a capability that writes three fields demands all three from
+    # anyone who wants to change one. Refusing was honest and it made
+    # correcting a phone number cost the caller an e-mail and an address.
+    # Everything not named stays required, so the default remains the strict
+    # one.
+    optional = set(optional_params or [])
+    unknown = optional - set(params)
+    if unknown:
+        raise DistillationError(
+            "Marked optional but not an input param: " + ", ".join(sorted(unknown))
+        )
+    input_params = {
+        name: ParamSpec(type="str", required=name not in optional)
+        for name in params
+    }
 
     # Build the extraction rule for each required output from the label
     # captured at mark_output time. Missing a label here means replay would
@@ -522,6 +542,7 @@ def distill_run(
         name=name,
         version=version,
         goal=goal,
+        description=description,
         target=TargetSpec(tenant=tenant, base_url=base_url, route_prefix=route_prefix),
         input_params=input_params,
         output_schema=output_schema,

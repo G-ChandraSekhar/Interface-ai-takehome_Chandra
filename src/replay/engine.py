@@ -460,6 +460,34 @@ def _execute_replay(
         step_index = 0
         while step_index < len(artifact.steps):
             step = artifact.steps[step_index]
+
+            # An optional parameter that was not supplied means "leave that
+            # field alone", so the step that would fill it is skipped.
+            #
+            # Without this, a capability that writes three fields demands all
+            # three from anyone who wants to change one -- and typing an empty
+            # string into the other two would BLANK them. Refusing to run was
+            # honest but it made a phone correction cost the caller a member's
+            # e-mail and address.
+            #
+            # Only value-bearing steps are skippable. A click is never skipped:
+            # it is navigation, and dropping one would silently take the flow
+            # somewhere the artifact never described.
+            if (
+                step.action in ("type", "select")
+                and step.input_ref
+                and step.input_ref not in params
+                and not artifact.input_params[step.input_ref].required
+            ):
+                evidence.log_event(
+                    "step_skipped",
+                    step_id=step.step_id,
+                    reason="optional param '" + step.input_ref + "' not supplied",
+                    field=step.target_name,
+                )
+                step_index += 1
+                continue
+
             resolution = resolve_locator(page, step.target)
 
             if isinstance(resolution, ResolutionFailure):
@@ -991,11 +1019,13 @@ def _execute_replay(
 def _finish(evidence, result, page, policy):
     # Captured on EVERY run, not only the ones that went wrong.
     #
-    # Capturing only failures optimised for debugging and forgot inspection.
-    # A reviewer opens the run that WORKED first and found an empty evidence
-    # panel, which makes the system look less accountable than it is. A
-    # successful run's final page is the proof it did what it claims, and its
-    # markup is the healthy baseline every later failure gets compared to.
+    # Capturing only failures was the wrong instinct: it optimised for
+    # debugging and forgot about inspection. A reviewer opens the run that
+    # WORKED first, and found an empty evidence panel -- which makes the
+    # system look less accountable than it is. A successful run's final page
+    # is the proof it did the thing it claims, and the DOM snapshot beside it
+    # is what the locator ladder resolved against on a page that was healthy,
+    # which is the baseline every later failure gets compared to.
     try:
         evidence.screenshot(page, result.status.value)
         evidence.dom_snapshot(page, result.status.value)

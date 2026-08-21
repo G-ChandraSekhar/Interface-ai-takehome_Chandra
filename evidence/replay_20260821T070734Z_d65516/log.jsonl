@@ -1,0 +1,4 @@
+{"ts": "2026-08-21T07:07:34.281958+00:00", "event": "replay_started", "artifact_id": "update_member_information", "version": 3, "params": {"member_id": "100234", "phone": "555-0199"}, "target": "meridian", "base_url": "https://web-sample.interface-hiring.com"}
+{"ts": "2026-08-21T07:07:35.087203+00:00", "event": "session_established", "url": "https://web-sample.interface-hiring.com/menu", "chaos": "none"}
+{"ts": "2026-08-21T07:07:35.543076+00:00", "event": "dom_snapshot", "label": "failure", "path": "dom/001_failure.html", "bytes": 3697}
+{"ts": "2026-08-21T07:07:35.543300+00:00", "event": "replay_finished", "status": "failure"}

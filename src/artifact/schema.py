@@ -286,7 +286,20 @@ class Artifact(BaseModel):
     artifact_id: str
     name: str
     version: int = 1
+    # What the model was told at DISCOVERY time. A recording instruction --
+    # "explicitly set all three fields", "search for member 100987" -- kept
+    # because it is part of the provenance of this artifact.
+    #
+    # It is NOT a description of the capability, and must never be published
+    # as one: it names the member the recording happened to use and the
+    # values it happened to set, and it carries instructions aimed at the
+    # model doing the recording rather than at anyone calling the result.
     goal: str
+
+    # What the CATALOG publishes. Falls back to `name` when unset, because a
+    # capability's name is a truthful if terse description and the goal is
+    # not a description at all.
+    description: Optional[str] = None
     target: TargetSpec
     input_params: dict[str, ParamSpec]
     output_schema: dict[str, ParamSpec]

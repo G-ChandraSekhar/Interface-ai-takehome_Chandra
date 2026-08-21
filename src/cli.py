@@ -106,6 +106,8 @@ def cmd_distill(args):
             params=params,
             required_outputs=args.output or [],
             version=args.version,
+            optional_params=args.optional,
+            description=args.description,
         )
     except DistillationError as e:
         print(f"Distillation failed: {e}")
@@ -326,6 +328,19 @@ def main():
     p_distill.add_argument("--name", required=True)
     p_distill.add_argument("--version", type=int, default=1)
     p_distill.add_argument("--param", action="append", help="key=value used in the run, repeatable")
+    p_distill.add_argument(
+        "--description",
+        help="what the CATALOG publishes for this capability. Defaults to "
+             "--name. Never the discovery goal: that names the member the "
+             "recording used and carries instructions aimed at the model "
+             "doing the recording, not at anyone calling the result.",
+    )
+    p_distill.add_argument(
+        "--optional", action="append", metavar="NAME",
+        help="an input param the caller may omit at replay. Its step is "
+             "skipped rather than filled with an empty value, so the field is "
+             "left as it is. Repeatable.",
+    )
     p_distill.add_argument("--output", action="append", help="required output name, repeatable")
     p_distill.add_argument("--artifacts-dir", default="artifacts")
     p_distill.set_defaults(func=cmd_distill)
