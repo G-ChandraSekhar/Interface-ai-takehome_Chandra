@@ -727,6 +727,98 @@ to distill a version whose input parameters differ from its predecessor's,
 would make the claim checkable. Same shape as §4.11 — the defect is in what the
 artifact asserts, not in what any code does.
 
+### 4.20 A content assertion holds in a mode, not always
+
+`member_inquiry_by_name`, invoked with a member *number*, failed its own
+checkpoint on a page it had reached perfectly correctly:
+
+```
+extracted member_name='Turing, Alan' does not contain '100987'
+```
+
+**The claim was never wrong.** "The name we found contains what you searched
+for" is true searching by name and false searching by number, because a name
+never contains a member number. It was recorded **without the condition that
+made it true**, so a parameter *other than the one it names* could invalidate
+it.
+
+`CheckpointAssertion` now carries that condition. Out of its mode the claim
+does not apply — which is not an assertion quietly failing to run, because the
+condition sits in the artifact where a reviewer approving it can see exactly
+when it binds.
+
+**The mode is derived, not declared.** A parameter bound to a **select** chose
+*how* the capability was operating; one bound to a **type** is a value the
+caller supplied. Conditioning on the selected params is what stops the
+assertion over-constraining: condition on the typed ones too and the capability
+only ever replays for the member it was recorded against. A capability with no
+select keeps an unconditional assertion — correctly, since there is no mode for
+it to depend on.
+
+> This is the **third** defect of the same class, after the unused input
+> parameter (§4.11) and the variant recorded as a version (§4.19). Each time
+> the code was correct and **the artifact's claim about itself was wrong** —
+> which is precisely the failure a test suite is constitutionally unable to
+> catch, because there is nothing wrong for it to catch.
+
+### 4.21 Evidence on every run, not only the ones that went wrong
+
+Screenshots and DOM snapshots were captured only on non-success outcomes. That
+optimised for debugging and forgot inspection: a reviewer opens the run that
+**worked** first, and found an empty evidence panel — which makes the system
+look less accountable than it is.
+
+There is a second reason, less obvious. A healthy page's markup is the
+**baseline every later failure is compared to**. Capturing only failures means
+the first snapshot you ever own comes from a run where something had already
+gone wrong, and there is nothing to diff it against.
+
+**DOM snapshots** close the last unmet item in §3.4's evidence list. A
+screenshot shows what a person would have seen; a snapshot shows what the
+**locator ladder was resolving against** — which is what you need when a step
+stops resolving and the screenshot looks entirely normal. They are served as
+**text, never rendered**: the snapshot is a bank page complete with forms and
+scripts, and rendering it inside the console would mean running the target's
+markup in the reviewer's browser.
+
+Redaction runs over the markup before it is written — an input's `value=` is
+exactly where a password or a balance would otherwise be committed in the
+clear. The first implementation used a whole-document regex that reached past a
+tag boundary and rewrote the **neighbouring** field's value; redaction that
+corrupts the evidence is worse than none, because the file still looks
+authoritative. It now works one tag at a time, with a test pinning that
+neighbours survive.
+
+**And a test that proved the wrong thing.** The snapshot endpoint returned 500
+on every real fetch — `PlainTextResponse` was used and never imported. The
+traversal test passed throughout, because it hits a path that returns 404
+*before* the response object is ever constructed.
+
+> A test that only exercises the refusal proves the guard, not the feature.
+
+### 4.22 The dashboard, rebuilt around the run
+
+Grounded in the target rather than in a look. MERIDIAN descends from IBM
+terminals, so the type is IBM Plex; the ground is navy-black taken from
+MERIDIAN's own chrome; and **amber is reserved for the human** and appears
+nowhere else, because in an automated system a person is the warm thing.
+
+The signature is the **spine**. A run *is* a sequence, so it is drawn as one and
+read downward like a transaction journal — which is what a bank actually
+produces. Steps are quiet dots, and the only things allowed to break the line
+are the things this system exists to make visible: a locator falling back, a
+recovery firing, a person taking the session.
+
+That replaced ten table rows reading `tier 1 · role_name` with a single
+sentence — *"Every step resolved on its first candidate"* — because tier became
+how a node **looks**. Drift is now visible instantly and silence is silent.
+
+**Three of the four defects fixed that night were found by looking at this
+dashboard and asking a question**, not by reading code: the over-claimed
+assertion, the empty evidence panels, and a pane that felt "pale" but was
+actually a line-length problem. It stopped being a thing that was built and
+became a thing that reported.
+
 ---
 
 ## 5. How the work unfolded
@@ -761,6 +853,10 @@ criterion.
 | 21 | Chatbot | Three tiers enforced; six defects found, all the model imitating a guarantee rather than invoking it |
 | 22 | Scope enforcement and a help path | Free text removed; the console describes itself from its own catalog |
 | 23 | Splitting `member_inquiry` | A variant had been recorded as a version, silently removing by-number lookup from every caller asking for the latest |
+| 24 | `update_member_information` re-recorded | All three fields §2.1 names, not just phone |
+| 25 | DOM snapshots; evidence on every run | §3.4's last unmet item; capturing only failures had left successful runs with an empty panel |
+| 26 | Dashboard rebuilt around the run as a journal | Then found three more defects by reading it |
+| 27 | Mode-conditioned assertions | Third defect of the class where the code is right and the artifact's claim about itself is wrong |
 
 Reconnaissance before code was the highest-leverage decision. Three scripts, no
 guesses: every design choice after step 3 was made against observed behaviour
@@ -770,7 +866,7 @@ rather than the brief's description of it.
 
 ## 6. Verification
 
-**229 tests passing**, up from 126 — including the 13 browser tests that
+**240 tests passing**, up from 126 — including the 13 browser tests that
 exercise the real mock app through every changed path.
 
 Live against MERIDIAN CORE:
@@ -799,6 +895,9 @@ Live against MERIDIAN CORE:
 | Chatbot, help | "what can you do" lists all seven capabilities, read off the catalog |
 | Chatbot, mixed request | member 100987 returned; the HTTPS aside declined, never answered |
 | Both lookup paths | `member_inquiry` by number and `member_inquiry_by_name` reach the same member by different routes |
+| `update_member_information@2` | recorded on 100987, replayed on 101555 with a different e-mail, phone **and** address |
+| Mode-conditioned assertion | applies searching by name, catches a wrong record, does not apply searching by number |
+| Evidence on success | a successful replay now carries both a screenshot and the page markup |
 | Dashboard figures | every displayed number recomputed from raw evidence — no disagreements |
 
 **An imprecision in that recovery run, since fixed.** With a *forced* fault
@@ -827,10 +926,9 @@ Per §5 of the brief, stated rather than discovered:
   which is the wrong trade. Sign-on is covered better as a configured
   precondition: exercised on **every run of every capability**, working live for
   both operator profiles, and it is what the `reauthenticate` recovery calls.
-- **DOM snapshots.** §3.4 lists them among the evidence a run should carry.
-  The core never emitted them — evidence is `log.jsonl`, `result.json` and
-  screenshots — and the screenshots plus the per-candidate locator diagnostics
-  cover the debugging need they were there for.
+- **A screen recording.** §6.3 asks for one "ideally". The committed evidence
+  bundles — logs, screenshots, page markup, timings — carry the same story and
+  are checkable rather than watchable.
 - **A transient-fault run that recovers *and* completes.** Needs a posting
   capability with `--error-rate` plus a human at the handoff console.
   MERIDIAN's random error rate applies only to posting actions, so a read-only

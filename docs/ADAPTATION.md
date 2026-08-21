@@ -13,7 +13,7 @@ distinction between a recording and a capability.
 |---|---|---|---|
 | member inquiry (by number / by name) | ✓ ✓ | ✓ ✓ | safe |
 | member record / balance | ✓ | ✓ | safe |
-| update member information | ✓ | ✓ | mutating |
+| update member information (e-mail, phone, address) | ✓ | ✓ | mutating |
 | funds transfer | ✓ | ✓ | irreversible |
 | open new share | ✓ | ✓ | irreversible |
 | place account hold | ✓ | ✓ | irreversible + supervisor |
@@ -48,9 +48,7 @@ rather than chosen:
 **Where the core *was* too coupled**, since the brief asks: sign-on —
 `_mock_login()` existed twice, verbatim, because there had only ever been one
 target. Everything else that changed was a *missing* abstraction rather than a
-wrong one (no concept of two pairs on a row, no grid lookup, no way to say
-"wherever the search landed"). Those are gaps a second target reveals, not
-couplings to the first.
+wrong one — gaps a second target reveals, not couplings to the first.
 
 **The headline difficulty turned out not to be one.** The brief flags the
 per-transaction hidden token. Reconnaissance killed the plan to build a
@@ -75,11 +73,10 @@ POST /capabilities/{id}/invoke?version=N   →  {status, outputs, outcome_code, 
 
 Same replay engine as the CLI, same guardrails, same evidence trail — a second
 front door, not a second execution path. Two constraints are enforced at
-distill time, both learned from real defects: every output must be readable
-from the page the capability ends on, and **every declared input must be used
-by some step** — an artifact advertising a parameter nothing consumes accepts a
-caller's value and ignores it, which on Place Account Hold means freezing the
-wrong share and reporting success.
+distill time, both learned from real defects: outputs must be readable from the
+page the capability ends on, and **every declared input must be used by some
+step** — otherwise the capability advertises a setting it ignores, which on
+Place Account Hold means freezing the wrong share and reporting success.
 
 ---
 
@@ -110,14 +107,12 @@ would be a config change:
 
 Two recovery budgets, because they stop different things. Per-step stops one
 step retrying forever; it cannot stop a condition returning on *every* page,
-since each step starts with a fresh allowance. Without a run-wide ceiling the
-run walks on until it meets a page whose controls are missing and blames a
-selector.
+since each step starts fresh. Without a run-wide ceiling the run walks on until
+it meets a page whose controls are missing — and blames a selector.
 
-Fault injection is driven through the host's own System Settings, armed after
-sign-on and cleared in `finally` — the host is shared and in-memory, so a
-forced fault left set would break the next person's run with nothing in *their*
-evidence to explain it.
+Fault injection runs through the host's own System Settings, armed after
+sign-on and cleared in `finally`: the host is shared, so a fault left set would
+break the next person's run with nothing in *their* evidence to explain it.
 
 ---
 
@@ -133,11 +128,10 @@ evidence to explain it.
   an HMAC-signed pending action the person confirms with a click; irreversible
   is refused. Confirmation is signed over the exact parameters rather than the
   model noticing agreement — altering one digit invalidates it.
-- **Escalation is unchanged.** A human takes control of the live session, and
-  replay **verifies the resulting state rather than trusting them**. See
-  `evidence/replay_20260820T182817Z_457fa0/` — a run reporting
-  `checkpoint_not_met` on a transfer that *had* posted, which is how the
-  driver-resync bug was found.
+- **Escalation is unchanged.** A human takes control of the live session and
+  replay **verifies the resulting state rather than trusting them**:
+  `evidence/replay_20260820T182817Z_457fa0/` reports `checkpoint_not_met` on a
+  transfer that *had* posted, which is how the driver-resync bug surfaced.
 - **Redaction unchanged.** Sensitive outputs are masked at the write boundary,
   so `member_name` is `***REDACTED***` in every log and artifact on disk.
 
@@ -172,15 +166,22 @@ is confidently wrong is worse than one that is missing.
 password, redaction correctly masks it, and the distiller would bind
 `[REDACTED]` as a literal. Weakening redaction is the wrong trade; sign-on is
 covered better as a precondition exercised on every run of every capability.
-**DOM snapshots** — §3.4 lists them; the core never emitted them, and
-screenshots plus per-candidate locator diagnostics cover the need.
-**`update_member_information` covers phone only**, not email or address.
+**A screen recording** — §6.3 asks for one "ideally"; the committed evidence
+bundles carry the same story and are checkable rather than watchable.
 
-**Next, in order:** the two missing update fields; structural checks on what an
-artifact *claims* about itself (a version number asserts supersession, and
+**Next, in order:** structural checks on what an artifact *claims* about
+itself (a version number asserts supersession, and
 nothing enforces it — a variant recorded as a version silently removed
 by-number lookup from every caller asking the catalog what's current);
 recalibrating the locator ladder's confidence priors from accumulated telemetry.
+
+**Three defects shared one shape** — an input parameter no step used, a
+variant recorded as a version, and an assertion recorded without the condition
+that made it true. Each time the code was correct and **the artifact's claim
+about itself was wrong**, which is the failure a test suite is constitutionally
+unable to catch: there is nothing wrong for it to catch. The distiller's
+build-time refusals are the first structural answer, and the right direction
+for the next round.
 
 **What should make you uneasy:** of roughly fifteen defects found, most
 surfaced by *reading output* rather than by a test failing — and the two most
@@ -191,5 +192,5 @@ which meant `place_account_hold` could never replay for anyone while every test
 passed. The distiller's contract checks are the first structural answer
 to that, and the right direction for the next round.
 
-**229 tests passing** (126 at the start), seven capabilities recorded and
+**240 tests passing** (126 at the start), seven capabilities recorded and
 replayed against different members with different values.
