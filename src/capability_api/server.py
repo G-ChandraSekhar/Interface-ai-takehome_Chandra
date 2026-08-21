@@ -35,7 +35,8 @@ from pydantic import BaseModel
 
 from src.artifact.store import load_artifact_by_id
 from src.capability_api.registry import artifact_to_tool_schema, discover_artifacts
-from src.capability_api.chat import capability_tools, chat, confirm
+from src.capability_api.chat import capability_tools, chat
+from src.capability_api.invoke import confirm, prepare
 from src.capability_api.runs import dom_path, list_runs, run_detail, screenshot_path
 from src.replay.engine import replay_artifact
 
@@ -185,6 +186,33 @@ def get_screenshot(run_id: str, name: str):
     if path is None:
         raise HTTPException(status_code=404, detail="No screenshot " + name)
     return FileResponse(str(path), media_type="image/png")
+
+
+class PrepareRequest(BaseModel):
+    params: dict = {}
+    version: Optional[int] = None
+
+
+class CapabilityConfirmRequest(BaseModel):
+    confirm_token: str
+
+
+@app.post("/capabilities/{artifact_id}/prepare")
+def post_prepare(artifact_id: str, request: PrepareRequest):
+    """Decide what happens to this request, by risk tier.
+
+    Safe runs now. Mutating comes back as a signed pending action. Irreversible
+    is sent to the engine and refused THERE -- not short-circuited here, so the
+    refusal gets an evidence bundle like any other outcome.
+    """
+    return prepare(artifact_id, request.params, ARTIFACTS_DIR, version=request.version)
+
+
+@app.post("/capabilities/confirm")
+def post_capability_confirm(request: CapabilityConfirmRequest):
+    """Run a mutating action a person approved. Capability, version and params
+    all come out of the verified token, so what runs is what they were shown."""
+    return confirm(request.confirm_token, artifacts_dir=ARTIFACTS_DIR)
 
 
 class ChatRequest(BaseModel):

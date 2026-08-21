@@ -59,12 +59,23 @@ import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from src.artifact.store import load_artifact_by_id
-from src.guardrails.engine import PolicyEngine
-from src.guardrails.result import RiskTier
 from src.capability_api.registry import artifact_to_tool_schema, discover_artifacts
-from src.replay.engine import replay_artifact
-from src.replay.result import ReplayStatus
+
+# Tiers, signing and execution live in invoke.py, not here. Nothing about them
+# is conversational -- the chatbot was simply the first surface to need them,
+# and the dashboard now needs the same. One implementation, so a second
+# surface cannot quietly grow its own idea of what "mutating" means. The
+# first surface that forgets is the hole.
+from src.capability_api.invoke import (  # noqa: F401
+    confirm,
+    describe as _describe,
+    highest_tier as _highest_tier,
+    latest_version as _latest_version,
+    prepare,
+    run,
+    sign as _sign,
+    verify_token,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -291,180 +302,6 @@ def capability_tools(artifacts_dir: Path, target: Optional[str] = "meridian") ->
     return tools
 
 
-def _highest_tier(artifact) -> RiskTier:
-    """The riskiest thing this capability does, per the SAME policy engine
-    discovery and replay use. Not a second opinion about tiers kept here --
-    that would be one more place for the allowlist to be contradicted."""
-    policy = PolicyEngine()
-    tier = RiskTier.SAFE
-    order = {RiskTier.SAFE: 0, RiskTier.MUTATING: 1, RiskTier.IRREVERSIBLE: 2}
-    for step in artifact.steps:
-        url = step.target_url
-        if not url:
-            continue
-        step_tier = policy._risk_tier_for_path(policy._path_of(url))
-        if order[step_tier] > order[tier]:
-            tier = step_tier
-    return tier
-
-
-def _sign(capability: str, params: dict, expires_at: int) -> str:
-    payload = json.dumps(
-        {"c": capability, "p": params, "e": expires_at}, sort_keys=True
-    ).encode()
-    digest = hmac.new(_SIGNING_KEY, payload, hashlib.sha256).hexdigest()
-    return json.dumps({"c": capability, "p": params, "e": expires_at, "s": digest})
-
-
-def verify_token(token: str) -> Tuple[Optional[str], Optional[dict], Optional[str]]:
-    """(capability, params, problem). Parameters come from the TOKEN.
-
-    Deliberately not from whatever the caller sends alongside it -- otherwise
-    a confirmation for one phone number could be replayed to set another.
-    """
-    try:
-        data = json.loads(token)
-        capability, params, expires_at, signature = data["c"], data["p"], data["e"], data["s"]
-    except Exception:
-        return None, None, "That confirmation could not be read."
-
-    expected = hmac.new(
-        _SIGNING_KEY,
-        json.dumps({"c": capability, "p": params, "e": expires_at}, sort_keys=True).encode(),
-        hashlib.sha256,
-    ).hexdigest()
-    if not hmac.compare_digest(expected, signature):
-        return None, None, "That confirmation did not match the action it was issued for."
-    if time.time() > expires_at:
-        return None, None, "That confirmation expired. Ask again if you still want it."
-    return capability, params, None
-
-
-def _describe(result, artifact_id: str, params: dict) -> dict:
-    """The invocation's outcome, in the shape the model reads back.
-
-    Deliberately verbose about refusals. A bare "failure" gives the model
-    nothing to tell the person, and a model with nothing to say tends to
-    invent something.
-    """
-    payload = {
-        "capability": artifact_id,
-        "params": params,
-        "status": result.status.value,
-    }
-
-    if result.status == ReplayStatus.SUCCESS:
-        payload["outputs"] = result.outputs
-    elif result.status == ReplayStatus.BUSINESS_OUTCOME:
-        payload["outcome_code"] = result.outcome_code
-        payload["message"] = result.outcome_message
-        payload["note"] = (
-            "This is a legitimate answer from the host, not an error. Report it "
-            "as the result."
-        )
-    elif result.failure:
-        payload["failure_class"] = result.failure.step_class.value
-        payload["expected"] = result.failure.expected
-        payload["observed"] = result.failure.observed
-        payload["note"] = (
-            "This capability FAILED. Say so plainly and say which step failed. "
-            "Do NOT explain the missing value as protected, redacted, private, "
-            "or unavailable for policy reasons -- it is missing because the run "
-            "did not complete. Do not offer a value from anywhere else."
-        )
-        if result.failure.step_class.value == "policy_denied":
-            payload["note"] = (
-                "The policy engine refused this action. Actions that move money "
-                "or change account status require a human present at the moment "
-                "they happen and cannot be completed from a conversation. Say so "
-                "plainly; do not retry."
-            )
-
-    payload["evidence"] = Path(result.run_dir).name if result.run_dir else None
-    return payload
-
-
-def _invoke(artifact_id: str, params: dict, artifacts_dir: Path, *, confirmed: bool = False) -> dict:
-    try:
-        artifact = load_artifact_by_id(artifact_id, _latest_version(artifact_id, artifacts_dir), artifacts_dir)
-    except FileNotFoundError:
-        return {"capability": artifact_id, "status": "no_such_capability"}
-
-    tier = _highest_tier(artifact)
-
-    # A mutating action stops here the FIRST time and comes back as a pending
-    # confirmation. `confirmed` is only ever True when it arrived via a
-    # verified token, so the model cannot set it by choosing its words.
-    if tier == RiskTier.MUTATING and not confirmed:
-        expires_at = int(time.time()) + _TOKEN_TTL_SECONDS
-        return {
-            "capability": artifact_id,
-            "params": params,
-            "status": "needs_confirmation",
-            "risk_tier": "mutating",
-            "confirm_token": _sign(artifact_id, params, expires_at),
-            "note": (
-                "CONFIRMABLE HERE. This changes a member record, which is allowed "
-                "from this conversation once the person confirms -- a confirm "
-                "button is already showing next to your reply. Say what will "
-                "change and ask them to confirm it. Do NOT tell them to use the "
-                "operator console and do NOT say this cannot be done here; that "
-                "is only true of actions that move money or freeze accounts, and "
-                "this is not one of those. Do not confirm on their behalf."
-            ),
-        }
-
-    result = replay_artifact(
-        artifact,
-        params,
-        # Confirmation reaches the MUTATING tier only. `irreversible_confirmed`
-        # is hardcoded False and there is no path -- no parameter, no token, no
-        # phrasing -- that makes it True from here: that tier needs a human at
-        # the live session, which a chat box is not.
-        mutate_confirmed=confirmed,
-        irreversible_confirmed=False,
-        mock_auth=True,
-        headless=True,
-    )
-    return _describe(result, artifact_id, params)
-
-
-def _latest_version(artifact_id: str, artifacts_dir: Path) -> int:
-    versions = []
-    for path in artifacts_dir.glob(artifact_id + "@*.json"):
-        try:
-            versions.append(int(path.stem.split("@")[1]))
-        except Exception:
-            continue
-    return max(versions) if versions else 1
-
-
-def confirm(token: str, artifacts_dir: Optional[Path] = None) -> dict:
-    """Run a mutating action the person has explicitly confirmed.
-
-    The capability and its parameters come out of the verified token, so what
-    runs is exactly what they were shown. Nothing the model said on the way
-    here is consulted.
-    """
-    artifacts_dir = artifacts_dir or (REPO_ROOT / "artifacts")
-
-    capability, params, problem = verify_token(token)
-    if problem:
-        return {"reply": problem, "invocations": []}
-
-    outcome = _invoke(capability, params, artifacts_dir, confirmed=True)
-
-    if outcome.get("status") == "success":
-        changed = ", ".join(str(k) + " is now " + str(v) for k, v in (outcome.get("outputs") or {}).items())
-        reply = "Done. " + (changed or "The record was updated.")
-    elif outcome.get("status") == "business_outcome":
-        reply = outcome.get("message") or "The host declined that."
-    else:
-        reply = "That did not go through: " + str(outcome.get("observed") or outcome.get("status"))
-
-    return {"reply": reply, "invocations": [outcome]}
-
-
 def chat(
     messages: List[dict],
     artifacts_dir: Optional[Path] = None,
@@ -594,7 +431,7 @@ def chat(
             params = json.loads(call.function.arguments or "{}")
         except Exception:
             params = {}
-        outcome = _invoke(call.function.name, params, artifacts_dir)
+        outcome = prepare(call.function.name, params, artifacts_dir)
         invocations.append(outcome)
         # The model is told confirmation is needed; it is not given the token.
         # A token in the transcript is a token the model could repeat back as

@@ -74,7 +74,7 @@
     --dim:        #5F718F;
 
     --success:    #3DD68C;
-    --outcome:    #D4A82E;
+    --outcome:    #E8C547;
     --recovered:  #5B9DF9;
     --failure:    #F2555A;
     --escalated:  #C084FC;
@@ -508,7 +508,7 @@
   .io section {
     background:linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
     border:1px solid var(--line-soft); border-top-color:var(--lift);
-    border-radius:9px; padding:13px 18px 15px;
+    border-radius:9px; padding:16px 18px;
     box-shadow:var(--shadow-md);
   }
   .kv { display:flex; gap:12px; padding:3px 0; font-family:var(--mono); font-size:12px; }
@@ -590,6 +590,72 @@
   .caps-toggle[aria-expanded="true"] .chev { transform:rotate(90deg); }
 
   @media (max-width: 1100px) { .journal-wrap { grid-template-columns:1fr; } .io { grid-template-columns:1fr; } }
+
+  /* --- invoke: the typed contract, as a form ------------------------
+     A reviewer can read input_params in the artifact, or they can see it
+     here: which fields are required, which may be left alone, and what the
+     tier does about it. Same replay engine as the CLI and the chatbot -- a
+     third front door, not a third execution path. */
+  .invoke { max-width: 620px; margin-top: 4px; }
+
+  .field { display:block; margin-bottom:13px; }
+  .fname { display:flex; align-items:baseline; gap:9px;
+           font-family:var(--mono); font-size:11.5px; color:var(--paper);
+           margin-bottom:5px; }
+  .fname em { font-style:normal; font-size:9.5px; letter-spacing:0.09em;
+              text-transform:uppercase; }
+  .fname em.req { color:var(--human); }
+  .fname em.opt { color:var(--dim); }
+
+  .field input {
+    width:100%; padding:9px 12px; border-radius:6px;
+    background:var(--void); color:var(--paper);
+    border:1px solid var(--line); border-top-color:#16223A;
+    font-family:var(--mono); font-size:12.5px;
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.4);
+  }
+  .field input:focus { outline:none; border-color:var(--recovered); }
+  .field input::placeholder { color:var(--dim); }
+
+  .invoke-actions { display:flex; align-items:center; gap:14px; margin-top:16px; }
+  .invoke .go {
+    font-family:var(--sans); font-size:13px; font-weight:500;
+    padding:9px 20px; border-radius:6px; cursor:pointer;
+    background:linear-gradient(180deg, var(--raised) 0%, var(--surface-2) 100%);
+    color:var(--paper); border:1px solid var(--line);
+    border-top-color:var(--lift); box-shadow:var(--shadow-md);
+  }
+  .invoke .go:disabled { opacity:.4; cursor:default; box-shadow:none; }
+  .invoke .no { background:none; border:1px solid var(--line);
+                color:var(--muted); font-size:13px; padding:9px 16px;
+                border-radius:6px; cursor:pointer; }
+  .hint { font-size:12px; color:var(--dim); line-height:1.5; max-width:38ch; }
+
+  .confirm .detail-line { font-family:var(--mono); font-size:11.5px;
+                          color:var(--paper); margin-bottom:6px; }
+
+  .invoke-result {
+    margin-top:20px; padding:15px 17px; border-radius:9px;
+    background:linear-gradient(180deg,
+      color-mix(in oklab, var(--v) 11%, var(--surface)) 0%,
+      color-mix(in oklab, var(--v) 4%, var(--surface)) 100%);
+    border:1px solid color-mix(in oklab, var(--v) 24%, transparent);
+    border-left:2.5px solid var(--v);
+    box-shadow:var(--shadow-md);
+  }
+  .ir-head { display:flex; align-items:center; gap:9px; margin-bottom:7px; }
+  .ir-head b { font-family:var(--mono); font-size:11.5px; letter-spacing:0.05em;
+               color:var(--v); text-transform:uppercase; }
+  .ir-ev { font-family:var(--mono); font-size:10px; color:var(--dim);
+           margin-left:auto; }
+  .ir-msg { font-size:12.5px; line-height:1.55; color:var(--muted);
+            margin:0 0 8px; }
+
+  .cap { display:block; width:100%; text-align:left; background:none;
+         border:none; cursor:pointer; }
+  .cap.active { background:linear-gradient(90deg,
+                color-mix(in oklab, var(--recovered) 12%, transparent) 0%,
+                transparent 62%); }
 
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -868,6 +934,148 @@ const SCOPES = {
 };
 
 
+function Invoke({ cap }) {
+  const props = cap.function.parameters.properties || {};
+  const required = cap.function.parameters.required || [];
+  const [values, setValues] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [pending, setPending] = useState(null);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => { setValues({}); setPending(null); setResult(null); }, [cap.artifact_id, cap.version]);
+
+  const missing = required.filter(n => !String(values[n] || '').trim());
+
+  const post = async (url, body) => {
+    setBusy(true); setResult(null);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.status === 'needs_confirmation') { setPending(data); }
+      else { setPending(null); setResult(data); }
+    } catch (e) {
+      setResult({ status: 'failure', observed: e.message });
+    }
+    setBusy(false);
+  };
+
+  const st = result ? statusOf(result.status) : null;
+
+  return (
+    <div className="detail">
+      <div className="run-head">
+        <div>
+          <h2>{cap.artifact_id}</h2>
+          <div className="runid">v{cap.version} · {cap.function.description}</div>
+        </div>
+      </div>
+
+      <div className="invoke">
+        <div className="section-label" style={{padding:'0 0 10px'}}>
+          <span>Invoke</span><span>same engine as the CLI</span>
+        </div>
+
+        {Object.entries(props).map(([name, spec]) => {
+          const req = required.includes(name);
+          return (
+            <label className="field" key={name}>
+              <span className="fname">
+                {name}
+                <em className={req ? 'req' : 'opt'}>{req ? 'required' : 'optional'}</em>
+              </span>
+              <input
+                value={values[name] || ''}
+                placeholder={req ? spec.description || name : 'leave blank to keep the current value'}
+                onChange={e => setValues(v => ({ ...v, [name]: e.target.value }))}
+                disabled={busy}
+              />
+            </label>
+          );
+        })}
+
+        {Object.keys(props).length === 0 && (
+          <p className="none">This capability takes no parameters.</p>
+        )}
+
+        {!pending && (
+          <div className="invoke-actions">
+            <button
+              className="go"
+              disabled={busy || missing.length > 0}
+              onClick={() => post('/capabilities/' + cap.artifact_id + '/prepare',
+                                  { params: values, version: cap.version })}
+            >
+              {busy ? 'Running…' : 'Run'}
+            </button>
+            {missing.length > 0 && (
+              <span className="hint">needs {missing.join(', ')}</span>
+            )}
+            {missing.length === 0 && !busy && (
+              <span className="hint">
+                The tier decides what happens next — safe runs, a record change
+                asks you to confirm, money movement is refused.
+              </span>
+            )}
+          </div>
+        )}
+
+        {pending && (
+          <div className="confirm">
+            <div className="what">This changes a member record</div>
+            <div className="detail-line">
+              {Object.entries(pending.params).map(([k, v]) => k + ': ' + v).join('  ·  ')}
+            </div>
+            <p className="none" style={{marginBottom:10}}>
+              Signed over exactly these values. Altering one invalidates it.
+            </p>
+            <div className="row">
+              <button className="go" disabled={busy}
+                onClick={() => post('/capabilities/confirm',
+                                    { confirm_token: pending.confirm_token })}>
+                Confirm and run
+              </button>
+              <button className="no" onClick={() => setPending(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {result && (
+          <div className="invoke-result" style={{'--v': st.color}}>
+            <div className="ir-head">
+              <span className="verdict-dot" />
+              <b>{result.outcome_code || result.failure_class || st.label}</b>
+              {result.evidence && (
+                <span className="ir-ev">{result.evidence}</span>
+              )}
+            </div>
+            {(result.message || result.observed) && (
+              <p className="ir-msg">{result.message || result.observed}</p>
+            )}
+            {result.outputs && Object.entries(result.outputs).map(([k, v]) => (
+              <div className="kv" key={k}>
+                <span>{k}</span>
+                <b className={String(v).includes('REDACT') ? 'masked' : ''}>{String(v)}</b>
+              </div>
+            ))}
+            {result.status === 'failure' && result.failure_class === 'policy_denied' && (
+              <p className="ir-msg" style={{color:'var(--human)'}}>
+                This is the guardrail, not a bug. An irreversible action needs a
+                person at the live session — run it from the CLI with --handoff
+                and take control at the operator console.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function Chat() {
   const [log, setLog] = useState([]);
   const [text, setText] = useState('');
@@ -998,6 +1206,7 @@ function App() {
   const [scope, setScope] = useState('meridian');
   const [chatOpen, setChatOpen] = useState(false);
   const [capsOpen, setCapsOpen] = useState(false);
+  const [invoking, setInvoking] = useState(null);
 
   useEffect(() => {
     const s = SCOPES[scope];
@@ -1047,14 +1256,19 @@ function App() {
             <span>{caps.length}</span>
           </button>
           {capsOpen && caps.map(c => (
-            <div className="cap" key={c.artifact_id + c.version}>
+            <button
+              className={'cap' + (invoking && invoking.artifact_id === c.artifact_id
+                                  && invoking.version === c.version ? ' active' : '')}
+              key={c.artifact_id + c.version}
+              onClick={() => { setInvoking(c); setSelected(null); }}
+            >
               <div className="cap-name">{c.artifact_id} <span className="pill">v{c.version}</span></div>
               <div className="cap-meta">
                 {Object.keys(c.function.parameters.properties).join(' · ') || 'no parameters'}
                 {' → '}
                 {Object.keys(c.output_schema).join(' · ')}
               </div>
-            </div>
+            </button>
           ))}
 
           {capsOpen && caps.length === 0 && (
@@ -1071,7 +1285,7 @@ function App() {
                 className={'run' + (selected === r.run_id ? ' active' : '')}
                 key={r.run_id}
                 style={{borderLeftColor: st.color, '--rowc': st.color}}
-                onClick={() => setSelected(r.run_id)}
+                onClick={() => { setSelected(r.run_id); setInvoking(null); }}
               >
                 <div className="run-top">
                   <span className="run-cap" title={r.capability || r.run_id}>
@@ -1091,7 +1305,11 @@ function App() {
             is selected. */}
         <div className="pane-right" style={{'--glow': statusOf(
           (runs.find(r => r.run_id === selected) || {}).status
-        ).color}}><Detail runId={selected} /></div>
+        ).color}}>
+          {invoking
+            ? <Invoke cap={invoking} />
+            : <Detail runId={selected} />}
+        </div>
         {chatOpen && <Chat />}
       </main>
     </>

@@ -58,23 +58,28 @@ def test_an_irreversible_action_can_never_be_confirmed_from_here():
     no parameter, no token, and no phrasing that makes it so: that tier needs a
     human at the live session, which a chat box is not.
     """
-    source = inspect.getsource(chat_module._invoke)
+    from src.capability_api import invoke
+
+    source = inspect.getsource(invoke.run)
     assert "irreversible_confirmed=False" in source
 
-    full = inspect.getsource(chat_module)
-    assert "irreversible_confirmed=True" not in full
+    # And neither surface may set it, anywhere.
+    for module in (chat_module, invoke):
+        assert "irreversible_confirmed=True" not in inspect.getsource(module)
 
     # Nothing a caller sends can reach it.
-    for entry in (chat_module.chat, chat_module.confirm):
+    for entry in (chat_module.chat, invoke.confirm, invoke.prepare, invoke.run):
         assert "irreversible_confirmed" not in inspect.signature(entry).parameters
 
 
 def test_a_mutating_action_stops_for_confirmation_before_it_runs():
     """It does not run and then ask. It asks, and runs only when told."""
-    source = inspect.getsource(chat_module._invoke)
+    from src.capability_api import invoke
+
+    source = inspect.getsource(invoke.prepare)
     assert "needs_confirmation" in source
-    # The check precedes the replay call, not the other way round.
-    assert source.index("needs_confirmation") < source.index("replay_artifact")
+    # The tier check precedes execution, not the other way round.
+    assert source.index("needs_confirmation") < source.index("return run(")
 
 
 def test_confirmation_is_a_signed_token_not_the_model_reading_yes():
@@ -84,21 +89,21 @@ def test_confirmation_is_a_signed_token_not_the_model_reading_yes():
 
     token = chat_module._sign(
         "update_member_information", {"member_id": "100234", "phone": "555-0199"},
-        int(time.time()) + 300,
+        3, int(time.time()) + 300,
     )
 
-    capability, params, problem = chat_module.verify_token(token)
+    capability, params, version, problem = chat_module.verify_token(token)
     assert problem is None
     assert capability == "update_member_information"
     assert params["phone"] == "555-0199"
 
     # Change what is being confirmed and the signature fails: a confirmation
     # for one phone number cannot be replayed to set another.
-    _, _, problem = chat_module.verify_token(token.replace("555-0199", "555-0200"))
+    *_, problem = chat_module.verify_token(token.replace("555-0199", "555-0200"))
     assert problem and "did not match" in problem
 
     # And it does not last.
-    _, _, problem = chat_module.verify_token(chat_module._sign("x", {}, 1))
+    *_, problem = chat_module.verify_token(chat_module._sign("x", {}, 1, 1))
     assert problem and "expired" in problem
 
 
@@ -189,8 +194,12 @@ def test_a_mutating_action_is_not_explained_as_if_it_were_irreversible():
     """
     from src.replay.result import ReplayStatus  # noqa: F401
 
-    note = None
-    source = inspect.getsource(chat_module._invoke)
+    # The note travelled with the function into invoke.py. It nearly did not
+    # survive the move -- which is exactly why this asserts on the text and
+    # not on where it lives.
+    from src.capability_api import invoke
+
+    source = inspect.getsource(invoke.prepare)
     assert "CONFIRMABLE HERE" in source
     assert "Do NOT tell them to use the" in source
 
