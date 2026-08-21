@@ -18,7 +18,7 @@ with no model in the decision loop.
 > depth, not a deliverable.
 >
 > `python3 scripts/acceptance.py` checks this submission against the brief
-> item by item (82 checks). `python3 -m pytest tests/ -q` → 255 passing.
+> item by item (82 checks). `python3 -m pytest tests/ -q` → 261 passing.
 
 The system now runs against **two** targets: MERIDIAN CORE
 ([web-sample.interface-hiring.com](https://web-sample.interface-hiring.com/)),
@@ -39,7 +39,7 @@ the API, and the dashboard do not.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && python3 -m playwright install chromium
-python3 -m pytest tests/ -q                      # 255 passing
+python3 -m pytest tests/ -q                      # 261 passing
 ```
 
 Credentials default to the demo operators MERIDIAN prints on its own sign-on
@@ -296,7 +296,7 @@ is a configuration exercise honest rather than asserted.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt && python3 -m playwright install chromium
-python3 -m pytest tests/ -q                      # 255 passing
+python3 -m pytest tests/ -q                      # 261 passing
 
 cp .env.example .env                             # add OPENAI_API_KEY for discovery only
 ```
