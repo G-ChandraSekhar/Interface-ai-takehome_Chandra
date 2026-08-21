@@ -30,13 +30,13 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
 
 from src.artifact.store import load_artifact_by_id
 from src.capability_api.registry import artifact_to_tool_schema, discover_artifacts
 from src.capability_api.chat import capability_tools, chat, confirm
-from src.capability_api.runs import list_runs, run_detail, screenshot_path
+from src.capability_api.runs import dom_path, list_runs, run_detail, screenshot_path
 from src.replay.engine import replay_artifact
 
 # The CLI loads this in main(); the server never needed it until the chat
@@ -162,6 +162,21 @@ def get_run(run_id: str):
     if detail is None:
         raise HTTPException(status_code=404, detail="No run " + run_id)
     return detail
+
+
+@app.get("/runs/{run_id}/dom/{name}")
+def get_dom_snapshot(run_id: str, name: str):
+    """Serve a DOM snapshot as text, never as a live page.
+
+    text/plain deliberately: the snapshot is a bank page complete with forms
+    and scripts, and rendering it inside the console would be running the
+    target's markup in the reviewer's browser. It is evidence to read, not a
+    page to visit.
+    """
+    path = dom_path(run_id, name)
+    if path is None:
+        raise HTTPException(status_code=404, detail="No such snapshot.")
+    return PlainTextResponse(path.read_text(encoding="utf-8", errors="replace"))
 
 
 @app.get("/runs/{run_id}/screenshots/{name}")

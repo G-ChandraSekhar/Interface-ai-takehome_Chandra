@@ -85,6 +85,75 @@ class EvidenceWriter:
             return ""
         return str(path.relative_to(self.run_dir))
 
+    def dom_snapshot(self, page, label: str) -> str:
+        """The page's HTML at a moment worth keeping.
+
+        §3.4 names DOM snapshots alongside screenshots. A screenshot shows what
+        a person would have seen; a snapshot shows what the LOCATOR LADDER was
+        actually resolving against -- which is the thing you need when a step
+        stops resolving and the screenshot looks perfectly normal.
+
+        Taken at the same moments as screenshots rather than every step: a full
+        page of markup per action would bury the log it sits next to, and the
+        moments that matter are the ones where something went wrong or a human
+        was handed control.
+
+        Redaction runs over the markup before it is written, using the same
+        field-name rules applied everywhere else -- an input's `value=` is
+        exactly where a password or a balance would otherwise be persisted in
+        the clear.
+        """
+        path = self.run_dir / "dom" / (str(self._step_count).zfill(3) + "_" + label + ".html")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            html = page.content()
+        except Exception as e:  # noqa: BLE001
+            self.log_event("dom_snapshot_failed", label=label, error=str(e))
+            return ""
+
+        html = self._redact_markup(html)
+        try:
+            path.write_text(html, encoding="utf-8")
+        except Exception as e:  # noqa: BLE001
+            self.log_event("dom_snapshot_failed", label=label, error=str(e))
+            return ""
+
+        self.log_event("dom_snapshot", label=label,
+                       path=str(path.relative_to(self.run_dir)), bytes=len(html))
+        return str(path.relative_to(self.run_dir))
+
+    def _redact_markup(self, html: str) -> str:
+        """Mask the value of any input whose name or id is a sensitive field.
+
+        Works one tag at a time rather than with a whole-document pattern. The
+        obvious cross-document regex reaches past a tag boundary and rewrites
+        the NEXT input's value -- redaction that corrupts the evidence is worse
+        than no redaction, because the file still looks authoritative.
+
+        Deliberately string-level rather than parsed: this runs at the write
+        boundary, and a parse that could throw would mean a failed run loses
+        its snapshot exactly when it is most needed.
+        """
+        import re
+
+        if not self.sensitive_field_names:
+            return html
+
+        def scrub(match):
+            tag = match.group(0)
+            ident = re.search(
+                r"""\b(?:name|id)\s*=\s*["']?([A-Za-z0-9_\-]+)""", tag)
+            if not ident or ident.group(1).lower() not in self.sensitive_field_names:
+                return tag
+            return re.sub(
+                r"""\bvalue\s*=\s*(["'])[^"']*\1""",
+                'value="***REDACTED***"',
+                tag,
+                flags=re.IGNORECASE,
+            )
+
+        return re.sub(r"<input\b[^>]*>", scrub, html, flags=re.IGNORECASE)
+
     def write_result(self, result: dict):
         with open(self.run_dir / "result.json", "w") as f:
             json.dump(result, f, indent=2)

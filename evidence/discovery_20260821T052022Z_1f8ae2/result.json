@@ -1,0 +1,18 @@
+{
+  "status": "success",
+  "message": "The member record for 100987 has been updated and confirmed. Member name: Turing, Alan. E-mail: alan.turing@bletchley.example. Phone: 555-0142. Address: 3 Sackville Street, Manchester.",
+  "outputs": {
+    "member_name": "***REDACTED***",
+    "email": "alan.turing@bletchley.example",
+    "phone": "555-0142",
+    "address": "3 Sackville Street, Manchester"
+  },
+  "step_count": 14,
+  "goal": "Using Member Inquiry, search by member number for 100987 and open that member's record. Then go to Update Member Information. Explicitly set ALL THREE fields even if a value already appears there: set the e-mail to alan.turing@bletchley.example, the phone to 555-0142, and the mailing address to 3 Sackville Street, Manchester. Submit the update. From the member record page that follows, report the member's full name, and the e-mail, phone and address now on record.",
+  "params": {
+    "member_id": "100987",
+    "email": "alan.turing@bletchley.example",
+    "phone": "555-0142",
+    "address": "3 Sackville Street, Manchester"
+  }
+}

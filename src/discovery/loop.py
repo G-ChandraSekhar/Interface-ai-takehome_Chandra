@@ -142,6 +142,7 @@ def run_discovery(
                 return False
             console_url = handoff_controller.start_console(port=console_port)
             screenshot_rel = evidence.screenshot(page, "stuck_awaiting_operator")
+            evidence.dom_snapshot(page, "stuck_awaiting_operator")
             handoff_controller.request_intervention(
                 run_id=run_id,
                 run_kind="discovery",
@@ -219,6 +220,7 @@ def run_discovery(
                     status = "stuck"
                     message = reason
                     evidence.screenshot(page, "stuck")
+                    evidence.dom_snapshot(page, "stuck")
                     break
                 # nudge and let it try again next loop iteration
                 messages.append(
@@ -467,12 +469,14 @@ def run_discovery(
                         "the goal was not actually completed."
                     )
                     evidence.screenshot(page, "finish_after_unresolved_block")
+                    evidence.dom_snapshot(page, "finish_after_unresolved_block")
                 else:
                     missing = [o for o in required_outputs if o not in marked_outputs]
                     if missing:
                         status = "failure"
                         message = f"Model called finish but these outputs were never marked: {missing}"
                         evidence.screenshot(page, "finish_incomplete")
+                        evidence.dom_snapshot(page, "finish_incomplete")
                     else:
                         status = "success"
                         message = finish_message
@@ -482,6 +486,7 @@ def run_discovery(
             step_count += 1
 
         evidence.screenshot(page, "final_state")
+        evidence.dom_snapshot(page, "final_state")
         if handoff_controller is not None:
             handoff_controller.stop_console()
         browser.close()

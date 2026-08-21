@@ -661,6 +661,7 @@ def _execute_replay(
                 ):
                     console_url = handoff_controller.start_console(port=console_port)
                     screenshot_rel = evidence.screenshot(page, "irreversible_awaiting_operator")
+                    evidence.dom_snapshot(page, "irreversible_awaiting_operator")
                     handoff_controller.request_intervention(
                         run_id=run_id,
                         run_kind="replay",
@@ -988,11 +989,20 @@ def _execute_replay(
 
 
 def _finish(evidence, result, page, policy):
-    if result.status != ReplayStatus.SUCCESS:
-        try:
-            evidence.screenshot(page, result.status.value)
-        except Exception:
-            pass
+    # Captured on EVERY run, not only the ones that went wrong.
+    #
+    # Capturing only failures optimised for debugging and forgot inspection.
+    # A reviewer opens the run that WORKED first and found an empty evidence
+    # panel, which makes the system look less accountable than it is. A
+    # successful run's final page is the proof it did what it claims, and its
+    # markup is the healthy baseline every later failure gets compared to.
+    try:
+        evidence.screenshot(page, result.status.value)
+        evidence.dom_snapshot(page, result.status.value)
+    except Exception:
+        # Evidence is best-effort and must never turn a real result into a
+        # crash -- least of all a successful one.
+        pass
 
     persisted_outputs = {
         k: (redact_value(str(v)) if k in policy.sensitive_output_fields else v)

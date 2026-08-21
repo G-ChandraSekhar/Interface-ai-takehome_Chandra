@@ -430,3 +430,80 @@ def test_a_real_failure_is_never_relabelled():
                                     {"event": "operator_handed_back"}]) == "failure"
     assert _display_status({"status": "business_outcome"},
                            [{"event": "recovery_applied"}]) == "business_outcome"
+
+
+# ---------------------------------------------------------------------------
+# A content assertion holds in a MODE, not always
+# ---------------------------------------------------------------------------
+#
+# Observed live: member_inquiry_by_name, invoked with a member number, failed
+# its own checkpoint on a page it had reached correctly --
+#
+#   extracted member_name='Turing, Alan' does not contain '100987'
+#
+# The claim was never wrong. "The name we found contains what you searched
+# for" is true when searching by NAME and false when searching by NUMBER,
+# because a name never contains a member number. It was recorded without the
+# condition that made it true, so a different parameter than the one it names
+# could invalidate it.
+
+
+def test_an_assertion_out_of_its_mode_does_not_apply():
+    from src.artifact.schema import CheckpointAssertion
+    from src.replay.checkpoint import assertions_met
+
+    by_name = [CheckpointAssertion(output="member_name", contains_input="query",
+                                   when={"search_by": "name"})]
+
+    ok, _ = assertions_met(by_name, {"member_name": "Turing, Alan"},
+                           {"query": "Turing", "search_by": "name"})
+    assert ok, "in its mode, a true claim must hold"
+
+    ok, reason = assertions_met(by_name, {"member_name": "Turing, Alan"},
+                                {"query": "Hopper", "search_by": "name"})
+    assert not ok and "Hopper" in reason, "in its mode, it must still catch a wrong record"
+
+    ok, _ = assertions_met(by_name, {"member_name": "Turing, Alan"},
+                           {"query": "100987", "search_by": "number"})
+    assert ok, "out of its mode, the claim does not apply"
+
+
+def test_the_mode_comes_from_what_was_SELECTED_not_typed():
+    """A parameter bound to a select chose how the capability was operating.
+    A parameter bound to a type is a value the caller supplied.
+
+    Conditioning on the selected ones is what stops the assertion
+    over-constraining to the exact inputs it was recorded with -- condition on
+    the typed ones too and the capability only ever replays for Turing.
+    """
+    from src.artifact.distill import _mode_params
+    from src.artifact.schema import ArtifactStep, LocatorCandidate
+
+    def step(sid, action, ref):
+        return ArtifactStep(
+            step_id=sid, action=action, target_name="x",
+            target=[LocatorCandidate(strategy="role_name", value="x", confidence=0.9)],
+            input_ref=ref, description="d",
+        )
+
+    steps = [
+        step("s1", "select", "search_by"),   # mode
+        step("s2", "type", "query"),         # value
+    ]
+    modes = _mode_params(steps, {"search_by": "name", "query": "Hopper"})
+
+    assert modes == {"search_by": "name"}
+    assert "query" not in modes
+
+
+def test_an_empty_mode_means_the_claim_always_holds():
+    """Capabilities with no select keep an unconditional assertion, which is
+    correct: there is no mode for it to depend on."""
+    from src.artifact.schema import CheckpointAssertion
+    from src.replay.checkpoint import assertions_met
+
+    always = [CheckpointAssertion(output="member_name", contains_input="query")]
+    ok, _ = assertions_met(always, {"member_name": "Hopper, Grace"}, {"query": "Hopper"})
+    assert ok
+    ok, _ = assertions_met(always, {"member_name": "Turing, Alan"}, {"query": "Hopper"})
+    assert not ok

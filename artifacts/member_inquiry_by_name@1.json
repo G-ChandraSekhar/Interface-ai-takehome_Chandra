@@ -142,7 +142,10 @@
         "output": "member_name",
         "contains_input": "query",
         "contains_literal": null,
-        "case_sensitive": false
+        "case_sensitive": false,
+        "when": {
+          "search_by": "name"
+        }
       }
     ]
   },

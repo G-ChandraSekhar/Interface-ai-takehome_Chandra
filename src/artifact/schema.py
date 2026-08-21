@@ -110,6 +110,17 @@ class CheckpointAssertion(BaseModel):
     contains_literal: Optional[str] = None
     case_sensitive: bool = False
 
+    # The mode this claim holds in, as {param: value}. Empty means always.
+    #
+    # "member_name contains query" is true when searching by NAME and false
+    # when searching by NUMBER -- a name never contains a member number. The
+    # claim was never wrong; it was recorded without the condition that made
+    # it true, so a different parameter than the one it names could
+    # invalidate it. Observed live: a by-name capability invoked with a
+    # member number failed its own checkpoint on a page it had reached
+    # correctly.
+    when: dict[str, str] = Field(default_factory=dict)
+
 
 class Checkpoint(BaseModel):
     model_config = ConfigDict(extra="forbid")

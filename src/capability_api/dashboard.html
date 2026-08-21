@@ -6,7 +6,7 @@
 <title>Capability Console — MERIDIAN CORE</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   /* ------------------------------------------------------------------
      A control plane above a legacy host.
@@ -21,13 +21,26 @@
      Colour carries the three-way result contract, which is the central
      idea of the whole system. Five states, five hues, used nowhere else.
      ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------
+     A supervisory console above a legacy host.
+
+     Grounded in the target rather than in a look. MERIDIAN descends from
+     IBM terminals, so the type is IBM Plex -- Sans for the interface, Mono
+     for every value, because every value on this page came off a
+     fixed-width screen. The ground is navy-black rather than neutral
+     black, taken from MERIDIAN's own chrome.
+
+     Colour carries the three-way result contract, which is the central
+     idea of the system. AMBER IS RESERVED FOR THE HUMAN and appears
+     nowhere else: in an automated system, a person is the warm thing.
+     ------------------------------------------------------------------ */
   :root {
-    --ink:        #0E1319;
-    --surface:    #161D26;
-    --surface-2:  #1D2530;
-    --line:       #2A3441;
-    --paper:      #E6EAEF;
-    --muted:      #8494A6;
+    --ink:        #0B1017;
+    --surface:    #121A24;
+    --surface-2:  #18222E;
+    --line:       #26323F;
+    --paper:      #E4EAF1;
+    --muted:      #8394A7;
     --dim:        #5A6879;
 
     --success:    #4FB286;
@@ -35,10 +48,12 @@
     --recovered:  #6C9BCF;
     --failure:    #D96A6A;
     --escalated:  #B084CC;
-  --denied:     #7C8AA0;
+    --denied:     #7C8AA0;
 
-    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-    --sans: 'Space Grotesk', system-ui, -apple-system, sans-serif;
+    --human:      #E8A33D;
+
+    --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
   }
 
   * { box-sizing: border-box; }
@@ -125,6 +140,13 @@
     overflow-y: auto;
   }
   .pane-right { overflow-y: auto; padding: 24px 28px 60px; }
+
+  /* Measure. On a wide monitor an unconstrained detail pane stretches every
+     card edge to edge, which puts a label and its value a hand-span apart and
+     pushes the verdict off the right of the screen. Capped at a comfortable
+     reading width and left-aligned, so the page looks the same on a laptop
+     and a 27-inch display. */
+  .detail { max-width: 1180px; }
 
   .section-label {
     font-family: var(--mono);
@@ -379,6 +401,103 @@
   }
   .chat-hint code:hover { color: var(--recovered); }
 
+  /* --- run head ----------------------------------------------------- */
+  .run-head { display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+  .run-head h2 { margin:0; font-size:23px; font-weight:600; letter-spacing:-0.01em;
+                 word-break:break-word; }
+  .runid { font-family:var(--mono); font-size:11px; color:var(--dim); margin-top:3px; }
+
+  .verdict { display:flex; align-items:center; gap:9px; flex:none; padding-top:6px; }
+  .verdict-dot { width:9px; height:9px; border-radius:50%; background:var(--v);
+                 box-shadow:0 0 0 4px color-mix(in oklab, var(--v) 18%, transparent); }
+  .verdict-word { font-family:var(--mono); font-size:11.5px; letter-spacing:0.09em;
+                  text-transform:uppercase; color:var(--v); }
+  .verdict-meta { font-family:var(--mono); font-size:11px; color:var(--dim); }
+
+  .banner { margin:18px 0 4px; padding:13px 16px; border-radius:7px;
+            background:color-mix(in oklab, var(--v) 8%, transparent);
+            border-left:2.5px solid var(--v); display:flex; flex-direction:column; gap:4px; }
+  .banner b { font-family:var(--mono); font-size:11.5px; letter-spacing:0.06em; color:var(--v); }
+  .banner .expected { font-family:var(--mono); font-size:11px; color:var(--dim); }
+
+  /* --- in / out ------------------------------------------------------ */
+  .io { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin:22px 0 6px; }
+  .io section { background:var(--surface); border:1px solid var(--line);
+                border-radius:8px; padding:14px 16px; }
+  .kv { display:flex; gap:12px; padding:3px 0; font-family:var(--mono); font-size:12px; }
+  .kv span { color:var(--muted); min-width:96px; flex:none; }
+  .kv b { font-weight:500; word-break:break-word; }
+  .kv b.masked { color:var(--dim); letter-spacing:0.04em; }
+  .none { color:var(--dim); font-size:12px; margin:2px 0 0; }
+
+  /* --- THE SPINE ------------------------------------------------------
+     The signature of this console. A run is a sequence, so it is drawn as
+     one and read downward like a transaction journal. Steps are quiet;
+     the things that interrupt a run -- a fallback, a recovery, a person
+     taking the session -- are the only things allowed to break the line,
+     because those are the moments the system exists to make visible. */
+  .journal-wrap { display:grid; grid-template-columns:1fr minmax(210px, 290px);
+                  gap:26px; align-items:start; margin-top:22px; }
+
+  .spine { list-style:none; margin:6px 0 0; padding:0 0 0 22px; position:relative; }
+  .spine::before { content:''; position:absolute; left:4px; top:6px; bottom:14px;
+                   width:1px; background:var(--line); }
+
+  .node { position:relative; padding:0 0 15px 0; }
+  .node .mark { position:absolute; left:-22px; top:5px; width:9px; height:9px;
+                border-radius:50%; background:var(--ink);
+                border:1.5px solid var(--line); }
+  .node .body { display:flex; flex-direction:column; gap:1px; }
+  .node b { font-family:var(--mono); font-size:12px; font-weight:500; }
+  .node .sub { font-family:var(--mono); font-size:10.5px; color:var(--dim); }
+  .node .sub em { font-style:normal; color:var(--outcome); }
+
+  .node.rescued .mark { border-color:var(--outcome); width:11px; height:11px; left:-23px; }
+  .node.recovered .mark { border-color:var(--recovered); }
+
+  /* A person is a BREAK in the line, not a row in it. */
+  .node.human { padding:6px 0 18px 0; }
+  .node.human .mark {
+    left:-27px; top:2px; width:19px; height:19px; border-radius:50%;
+    background:var(--ink); border:2px solid var(--human);
+  }
+  .node.human b { color:var(--human); font-size:12.5px; }
+  .node.human .body { padding:9px 13px; border-radius:7px;
+    background:color-mix(in oklab, var(--human) 7%, transparent);
+    border-left:2px solid var(--human); }
+
+  .node.end { padding-bottom:0; }
+  .node.end .mark { background:var(--v); border-color:var(--v); width:11px; height:11px; left:-23px; }
+  .node.end b { color:var(--v); letter-spacing:0.05em; text-transform:uppercase; font-size:11.5px; }
+
+  .spine-note { font-size:12px; color:var(--dim); margin:10px 0 0; max-width:52ch; line-height:1.5; }
+
+  /* --- evidence, beside the journal ---------------------------------- */
+  .evidence { position:sticky; top:14px; }
+  .evidence h4 { font-family:var(--mono); font-size:10px; letter-spacing:0.09em;
+                 text-transform:uppercase; color:var(--muted); margin:16px 0 5px; }
+  .shot { display:block; margin-bottom:11px; text-decoration:none; }
+  .shot img { width:100%; border:1px solid var(--line); border-radius:6px;
+              background:#c9c9c9; display:block; transition:border-color .15s; }
+  .shot:hover img { border-color:var(--muted); }
+  .shot span { display:block; font-family:var(--mono); font-size:10px;
+               color:var(--dim); margin-top:4px; }
+  .dom { display:block; font-family:var(--mono); font-size:10.5px; color:var(--recovered);
+         text-decoration:none; padding:3px 0; border-bottom:1px solid var(--line); }
+  .dom:hover { color:var(--paper); }
+
+  /* --- collapsible capability rail ----------------------------------- */
+  .caps-toggle { width:100%; background:none; border:none; cursor:pointer;
+    display:flex; align-items:center; justify-content:space-between;
+    padding:11px 18px; font-family:var(--mono); font-size:10px;
+    letter-spacing:0.09em; text-transform:uppercase; color:var(--muted);
+    border-bottom:1px solid var(--line); }
+  .caps-toggle:hover { color:var(--paper); }
+  .caps-toggle .chev { transition:transform .18s; }
+  .caps-toggle[aria-expanded="true"] .chev { transform:rotate(90deg); }
+
+  @media (max-width: 1100px) { .journal-wrap { grid-template-columns:1fr; } .io { grid-template-columns:1fr; } }
+
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 </head>
@@ -426,25 +545,6 @@ function Legend() {
   );
 }
 
-function Escalation({ e }) {
-  return (
-    <div className="esc">
-      <div className="esc-reason">{e.reason || 'A human was required.'}</div>
-      <div className="esc-thread">
-        <div className="esc-rail" />
-        <div className="esc-steps">
-          <div className="esc-step"><b>paused, human requested</b><span>{clock(e.requested_at)}</span></div>
-          <div className="esc-gap">
-            <strong>{e.seconds_total}s</strong> with a person in the loop
-            {e.seconds_until_taken != null && <> · {e.seconds_until_taken}s before control was taken</>}
-          </div>
-          <div className="esc-step"><b>control handed back</b><span>{clock(e.returned_at)}</span></div>
-        </div>
-      </div>
-      {e.step_id && <div className="esc-step" style={{marginTop:10}}><b>step</b><span>{e.step_id}</span></div>}
-    </div>
-  );
-}
 
 function Detail({ runId }) {
   const [run, setRun] = useState(null);
@@ -469,93 +569,182 @@ function Detail({ runId }) {
   const st = statusOf(run.status);
   const entries = o => Object.entries(o || {});
 
+  // ---- Build the journal -------------------------------------------------
+  // A run IS a sequence, so it is drawn as one. Steps come from telemetry;
+  // the moments between them -- a recovery firing, a human taking the
+  // session -- come from the event log, and are interleaved in time order.
+  // Those interruptions are the whole point of the system, so they get to
+  // interrupt the line rather than sit in a table somewhere else.
+  const journal = [];
+  (run.step_telemetry || []).forEach(t => {
+    journal.push({
+      kind: 'step',
+      id: t.step_id,
+      tier: t.resolved_tier,
+      strategy: t.resolved_strategy,
+      rescued: (t.resolved_tier || 1) > 1,
+      recovered: !!t.recovery_applied,
+    });
+  });
+
+  (run.escalations || []).forEach(e => {
+    // Placed after the step it interrupted where we know it, else at the end.
+    const at = journal.findIndex(j => j.kind === 'step' && j.id === e.step_id);
+    const node = { kind: 'human', seconds: e.seconds_total, waited: e.seconds_until_taken, step: e.step_id };
+    if (at >= 0) journal.splice(at + 1, 0, node); else journal.push(node);
+  });
+
+  journal.push({
+    kind: 'end',
+    status: run.status,
+    label: run.outcome_code || (run.failure && run.failure.step_class) || run.status,
+  });
+
+  const domUrl = n => '/runs/' + run.run_id + '/dom/' + n;
+
   return (
-    <div>
-      <div className="detail-head">
-        <h2 className="detail-title">{run.capability || 'Run'}</h2>
-        <div className="detail-id">{run.run_id}</div>
-      </div>
-
-      <div className="grid">
-        <div className="card">
-          <h4>Outcome</h4>
-          <div className="kv">
-            <div><b>status</b><span style={{color: st.color}}>{st.label}</span></div>
-            <div><b>engine</b><span>{run.engine_status || '—'}</span></div>
-            <div><b>duration</b><span>{dur(run.duration_ms)}</span></div>
-            <div><b>started</b><span>{day(run.started_at)} {clock(run.started_at)}</span></div>
-          </div>
+    <div className="detail">
+      <div className="run-head">
+        <div>
+          <h2>{run.capability || run.run_id}</h2>
+          <div className="runid">{run.run_id}</div>
         </div>
-        <div className="card">
-          <h4>Inputs</h4>
-          <div className="kv">
-            {entries(run.params).length === 0 && <div><span style={{color:'var(--dim)'}}>none</span></div>}
-            {entries(run.params).map(([k,v]) => <div key={k}><b>{k}</b><span>{String(v)}</span></div>)}
-          </div>
-        </div>
-        <div className="card">
-          <h4>Outputs</h4>
-          <div className="kv">
-            {entries(run.outputs).length === 0 && <div><span style={{color:'var(--dim)'}}>none</span></div>}
-            {entries(run.outputs).map(([k,v]) => <div key={k}><b>{k}</b><span>{String(v)}</span></div>)}
-          </div>
+        <div className="verdict" style={{ '--v': st.color }}>
+          <span className="verdict-dot" />
+          <span className="verdict-word">{st.label}</span>
+          <span className="verdict-meta">
+            {dur(run.duration_ms)}
+            {run.escalations && run.escalations.length ? ' · human ' + run.escalations[0].seconds_total + 's' : ''}
+          </span>
         </div>
       </div>
 
-      {run.outcome_code && (
-        <div className="out-box">
-          <div style={{fontFamily:'var(--mono)', fontSize:11, color:'var(--outcome)'}}>{run.outcome_code}</div>
-          <div style={{marginTop:4}}>{run.outcome_message}</div>
+      {(run.outcome_message || (run.failure && run.failure.observed)) && (
+        <div className="banner" style={{ '--v': st.color }}>
+          <b>{run.outcome_code || (run.failure && run.failure.step_class)}</b>
+          <span>{run.outcome_message || (run.failure && run.failure.observed)}</span>
+          {run.failure && run.failure.expected && (
+            <span className="expected">expected&nbsp;&nbsp;{run.failure.expected}</span>
+          )}
         </div>
       )}
 
-      {run.failure && (
-        <div className="fail-box">
-          <div style={{color:'var(--failure)'}}>{run.failure.class}{run.failure.step_id ? ' · ' + run.failure.step_id : ''}</div>
-          <div style={{marginTop:6}}><span style={{color:'var(--muted)'}}>expected </span>{run.failure.expected}</div>
-          <div><span style={{color:'var(--muted)'}}>observed </span>{run.failure.observed}</div>
+      <div className="io">
+        <section>
+          <h3>Sent in</h3>
+          {entries(run.params).length === 0 && <p className="none">none</p>}
+          {entries(run.params).map(([k, v]) => (
+            <div className="kv" key={k}><span>{k}</span><b>{String(v)}</b></div>
+          ))}
+        </section>
+        <section>
+          <h3>Came back</h3>
+          {entries(run.outputs).length === 0 && <p className="none">none</p>}
+          {entries(run.outputs).map(([k, v]) => (
+            <div className="kv" key={k}>
+              <span>{k}</span>
+              <b className={String(v).includes('REDACT') ? 'masked' : ''}>{String(v)}</b>
+            </div>
+          ))}
+        </section>
+      </div>
+
+      {/* --- the journal, and its evidence, side by side ------------------ */}
+      <div className="journal-wrap">
+        <div>
+          <h3>What happened</h3>
+          <ol className="spine">
+            {journal.map((j, i) => {
+              if (j.kind === 'human') return (
+                <li className="node human" key={i}>
+                  <span className="mark" />
+                  <div className="body">
+                    <b>A person took the session</b>
+                    <span className="sub">
+                      {j.seconds}s in the loop
+                      {j.waited != null ? ' · ' + j.waited + 's before control was taken' : ''}
+                      {j.step ? ' · at ' + j.step : ''}
+                    </span>
+                    <span className="sub">
+                      Replay paused here, then verified the resulting state rather
+                      than trusting the outcome.
+                    </span>
+                  </div>
+                </li>
+              );
+              if (j.kind === 'end') return (
+                <li className={'node end ' + j.status} key={i} style={{ '--v': st.color }}>
+                  <span className="mark" />
+                  <div className="body"><b>{j.label}</b></div>
+                </li>
+              );
+              return (
+                <li className={'node step' + (j.rescued ? ' rescued' : '') + (j.recovered ? ' recovered' : '')} key={i}>
+                  <span className="mark" />
+                  <div className="body">
+                    <b>{j.id}</b>
+                    <span className="sub">
+                      {j.strategy}
+                      {j.rescued && <em> · fell back to tier {j.tier}</em>}
+                      {j.recovered && <em> · recovered here</em>}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+          {(run.step_telemetry || []).some(t => (t.resolved_tier || 1) > 1) ? (
+            <p className="spine-note">
+              A step that falls back still succeeds — and says so. That is drift
+              showing up in the evidence before it becomes an outage.
+            </p>
+          ) : (
+            <p className="spine-note">Every step resolved on its first candidate.</p>
+          )}
         </div>
-      )}
 
-      {run.escalations && run.escalations.length > 0 && (
-        <>
-          <h3>Human in the loop</h3>
-          {run.escalations.map((e,i) => <Escalation key={i} e={e} />)}
-        </>
-      )}
+        <aside className="evidence">
+          <h3>Evidence</h3>
+          {(run.screenshots || []).map(s => (
+            <a className="shot" key={s} href={'/runs/' + run.run_id + '/screenshots/' + s} target="_blank" rel="noreferrer">
+              <img src={'/runs/' + run.run_id + '/screenshots/' + s} alt={s} loading="lazy" />
+              <span>{s}</span>
+            </a>
+          ))}
+          {(run.dom_snapshots || []).length > 0 && (
+            <div className="doms">
+              <h4>Page markup</h4>
+              <p className="none">
+                What the locator ladder was resolving against — useful when a
+                step stops resolving and the screenshot looks normal.
+              </p>
+              {run.dom_snapshots.map(n => (
+                <a className="dom" key={n} href={domUrl(n)} target="_blank" rel="noreferrer">{n}</a>
+              ))}
+            </div>
+          )}
+          {(run.screenshots || []).length === 0 && (run.dom_snapshots || []).length === 0 && (
+            <p className="none">Nothing captured — this run had nothing to explain.</p>
+          )}
+        </aside>
+      </div>
 
-      {run.step_telemetry && run.step_telemetry.length > 0 && (
+      {(run.step_telemetry || []).length > 0 && (
         <>
           <h3>Locator resolution</h3>
-          <table>
-            <thead><tr><th>step</th><th>tier</th><th>strategy</th><th>recovered</th></tr></thead>
+          <table className="tel">
+            <thead><tr><th>Step</th><th>Tier</th><th>Strategy</th><th>Recovered</th></tr></thead>
             <tbody>
               {run.step_telemetry.map(t => (
                 <tr key={t.step_id}>
                   <td>{t.step_id}</td>
-                  <td className={t.resolved_tier === 1 ? 'tier1' : 'tierN'}>{t.resolved_tier}</td>
+                  <td className={(t.resolved_tier || 1) > 1 ? 'amber' : 'green'}>{t.resolved_tier}</td>
                   <td>{t.resolved_strategy}</td>
                   <td>{t.recovery_applied ? 'yes' : ''}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </>
-      )}
-
-      {run.screenshots && run.screenshots.length > 0 && (
-        <>
-          <h3>Screenshots</h3>
-          <div className="shots">
-            {run.screenshots.map(name => (
-              <figure key={name}>
-                <a href={'/runs/' + run.run_id + '/screenshots/' + name} target="_blank" rel="noreferrer">
-                  <img src={'/runs/' + run.run_id + '/screenshots/' + name} alt={name} loading="lazy" />
-                </a>
-                <figcaption>{name}</figcaption>
-              </figure>
-            ))}
-          </div>
         </>
       )}
 
@@ -579,10 +768,12 @@ function Detail({ runId }) {
   );
 }
 
+
 const SCOPES = {
   meridian: { label: 'MERIDIAN', caps: '?target=meridian&latest_only=true', runs: '&target=meridian' },
   all:      { label: 'All',      caps: '',                                  runs: '' },
 };
+
 
 function Chat() {
   const [log, setLog] = useState([]);
@@ -713,6 +904,7 @@ function App() {
   const [selected, setSelected] = useState(null);
   const [scope, setScope] = useState('meridian');
   const [chatOpen, setChatOpen] = useState(false);
+  const [capsOpen, setCapsOpen] = useState(false);
 
   useEffect(() => {
     const s = SCOPES[scope];
@@ -750,8 +942,18 @@ function App() {
       </header>
       <main style={chatOpen ? {gridTemplateColumns: "minmax(280px, 340px) 1fr minmax(320px, 420px)"} : undefined}>
         <div className="pane-left">
-          <div className="section-label"><span>Capabilities</span><span>{caps.length}</span></div>
-          {caps.map(c => (
+          {/* Collapsed by default: you browse RUNS, and consult the catalog
+              occasionally. Giving half the rail to a list nobody scrolls
+              pushed the thing people came for below the fold. */}
+          <button
+            className="caps-toggle"
+            aria-expanded={capsOpen}
+            onClick={() => setCapsOpen(o => !o)}
+          >
+            <span><span className="chev">›</span>&nbsp;&nbsp;Capabilities</span>
+            <span>{caps.length}</span>
+          </button>
+          {capsOpen && caps.map(c => (
             <div className="cap" key={c.artifact_id + c.version}>
               <div className="cap-name">{c.artifact_id} <span className="pill">v{c.version}</span></div>
               <div className="cap-meta">
@@ -762,7 +964,7 @@ function App() {
             </div>
           ))}
 
-          {caps.length === 0 && (
+          {capsOpen && caps.length === 0 && (
             <div style={{padding:'8px 20px 16px', color:'var(--muted)', fontSize:12.5}}>
               No capabilities recorded against this target yet.
             </div>

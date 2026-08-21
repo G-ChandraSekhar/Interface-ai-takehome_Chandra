@@ -220,7 +220,30 @@ def _looks_like_an_identifier(segment: str) -> bool:
     return any(c.isdigit() for c in segment) and not any(c.isalpha() for c in segment.replace("-", ""))
 
 
-def _derive_assertions_from_hints(output_events, required_outputs, params) -> list:
+def _mode_params(steps, params) -> dict:
+    """The parameters that chose a MODE, with the value they were set to.
+
+    A parameter bound to a `select` picked which way the capability was
+    operating -- search by name or by number, which reason code, which share
+    type. A parameter bound to a `type` is a value the caller supplied.
+
+    That distinction is what a content assertion needs. "member_name contains
+    query" is true when searching by name and false when searching by number,
+    so the claim has to carry the mode it was recorded in. Conditioning on the
+    selected params and not the typed ones is what keeps it from
+    over-constraining to the exact record-time inputs.
+    """
+    modes = {}
+    for step in steps:
+        if step.action != "select" or not step.input_ref:
+            continue
+        value = params.get(step.input_ref)
+        if value:
+            modes[step.input_ref] = str(value)
+    return modes
+
+
+def _derive_assertions_from_hints(output_events, required_outputs, params, steps=None) -> list:
     """Assertions from the containment recorded at mark_output time.
 
     loop.py computes which parameters an output's value contained while the
@@ -238,13 +261,16 @@ def _derive_assertions_from_hints(output_events, required_outputs, params) -> li
             continue
         for pname in event.get("contains_params") or []:
             if pname in params:
-                assertions.append(CheckpointAssertion(output=name, contains_input=pname))
+                assertions.append(CheckpointAssertion(
+                    output=name, contains_input=pname,
+                    when=_mode_params(steps or [], params),
+                ))
                 seen.add(name)
                 break
     return assertions
 
 
-def _derive_assertions(outputs_seen: dict, params: dict) -> list:
+def _derive_assertions(outputs_seen: dict, params: dict, _modes: dict = None) -> list:
     """Content claims that hold for the run being distilled.
 
     Only claims that were TRUE of this run are recorded, and only where an
@@ -259,6 +285,7 @@ def _derive_assertions(outputs_seen: dict, params: dict) -> list:
     make artifacts brittle against data that is none of the capability's
     business.
     """
+    _modes = _modes or {}
     assertions = []
     for output_name, observed in outputs_seen.items():
         if not observed:
@@ -268,7 +295,8 @@ def _derive_assertions(outputs_seen: dict, params: dict) -> list:
                 continue
             if str(pval).lower() in str(observed).lower() and str(pval) != str(observed):
                 assertions.append(
-                    CheckpointAssertion(output=output_name, contains_input=pname)
+                    CheckpointAssertion(output=output_name, contains_input=pname,
+                                        when=_modes)
                 )
                 break
     return assertions
@@ -428,13 +456,14 @@ def distill_run(
     checkpoint_assertions = []
     if "{*}" in checkpoint_pattern:
         checkpoint_assertions = _derive_assertions_from_hints(
-            output_events, required_outputs, params
+            output_events, required_outputs, params, steps
         )
         if not checkpoint_assertions:
             # Older runs predate the recorded hints. Fall back to matching on
             # the logged value, which works for any output redaction did not
             # touch.
-            checkpoint_assertions = _derive_assertions(observed_outputs, params)
+            checkpoint_assertions = _derive_assertions(
+                observed_outputs, params, _mode_params(steps, params))
 
     checkpoint = Checkpoint(
         description="All required outputs (" + ", ".join(required_outputs) + ") are visible on this page.",

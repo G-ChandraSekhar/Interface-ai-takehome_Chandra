@@ -76,6 +76,14 @@ def assertion_met(assertion, outputs, params):
     an assertion that quietly does not run is worse than no assertion, because
     the artifact still claims to make it.
     """
+    # Out of its declared mode, the claim simply does not apply. That is not
+    # the same as an assertion quietly failing to run: the condition is in
+    # the artifact, where a reviewer approving it can see exactly when it
+    # binds and when it does not.
+    for param, expected_mode in (assertion.when or {}).items():
+        if str(params.get(param, "")).lower() != str(expected_mode).lower():
+            return True, ""
+
     if assertion.output not in outputs:
         return False, "output '" + assertion.output + "' was not extracted"
 

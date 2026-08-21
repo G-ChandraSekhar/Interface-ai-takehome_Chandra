@@ -214,6 +214,12 @@ def summarize_run(run_dir: Path) -> Optional[dict]:
         return None
 
     started = next((e for e in events if e.get("event") in ("run_started", "replay_started")), {})
+    # Captured at the same moments as screenshots, so read the same way:
+    # from the run's own directory, not by reconstructing a path.
+    doms = sorted(p.name for p in (run_dir / "dom").glob("*.html")) if (
+        run_dir / "dom"
+    ).is_dir() else []
+
     shots = sorted(p.name for p in (run_dir / "screenshots").glob("*.png")) if (
         run_dir / "screenshots"
     ).exists() else []
@@ -253,6 +259,10 @@ def summarize_run(run_dir: Path) -> Optional[dict]:
         "step_telemetry": (result or {}).get("step_telemetry") or [],
         "escalations": _escalation_windows(events),
         "screenshots": shots,
+        # Paired with screenshots because they are captured together: the
+        # picture shows what a person would have seen, the markup shows what
+        # the locator ladder was resolving against.
+        "dom_snapshots": doms,
         "event_count": len(events),
     }
 
@@ -302,6 +312,17 @@ def run_detail(run_id: str) -> Optional[dict]:
         return None
     summary["events"] = _read_jsonl(run_dir / "log.jsonl")
     return summary
+
+
+def dom_path(run_id: str, name: str) -> Optional[Path]:
+    """Resolve a DOM snapshot inside a run's bundle, refusing traversal."""
+    root = evidence_root() / run_id / "dom"
+    candidate = (root / name).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return candidate if candidate.exists() else None
 
 
 def screenshot_path(run_id: str, name: str) -> Optional[Path]:
